@@ -1,9 +1,12 @@
-const express = require("express");
 const dotenv = require("dotenv");
+const http = require("http");
+const app = require("./app");
+const { setupSocket } = require("./sockets");
+
+const server = http.createServer(app);
+setupSocket(server);
 
 dotenv.config();
-
-const app = express();
 
 const PORT = process.env.PORT || 3000;
 
@@ -18,6 +21,6 @@ app.get("/", (req, res) => {
   );
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on PORT ${PORT}`);
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
