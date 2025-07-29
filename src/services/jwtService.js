@@ -12,4 +12,21 @@ function generateJwtToken(payload, expiresIn) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn });
 }
 
-module.exports = { generateJwtToken };
+/**
+ * Verify a JWT token
+ * @param {String} token - JWT token to verify
+ * @returns {Object|null} Decoded payload if valid, or null if invalid/expired
+ * @throws {Error} If verification fails (optional: handle in controller)
+ */
+function verifyJwtToken(token) {
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (err) {
+    // Option 1: return null if invalid/expired
+    return null;
+    // Option 2: throw err if you want to handle it elsewhere
+    // throw err;
+  }
+}
+
+module.exports = { generateJwtToken, verifyJwtToken };

@@ -2,10 +2,17 @@
 const express = require("express");
 const router = express.Router();
 const authController = require("../../controllers/authController");
+const { authenticateToken } = require("../../middlewares/authMiddleware");
 
 // POST /v1/auth/magic-link
-router.post("/magic-link", authController.sendMagicLink);
+router.post("/magic-link", authController.sendMagicLinkOrLogin);
 
-// (You can add more auth-related routes here in the future)
+router.post("/verify", authController.verifyMagicLink);
+
+router.post(
+  "/profile/complete",
+  authenticateToken,
+  authController.completeProfile
+);
 
 module.exports = router;
