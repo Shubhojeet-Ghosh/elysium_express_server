@@ -1,4 +1,5 @@
 const http = require("http");
+const { version: appVersion } = require("../package.json");
 
 const app = require("./app");
 const { setupSocket } = require("./sockets");
@@ -10,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => {
   const appEnv = process.env.APP_ENV || "development";
-  const appVersion = process.env.APP_VERSION;
+
   console.log(
     `Express server is running on ${appEnv} environment, version ${appVersion}.`
   );
