@@ -16,7 +16,11 @@ app.use(express.json());
 
 app.use(
   cors({
-    origin: ["http://localhost:3000", "https://sgdevstudio.in"],
+    origin: [
+      "http://localhost:3000",
+      "https://sgdevstudio.in",
+      "https://www.sgdevstudio.in/",
+    ],
     credentials: true,
   })
 );
