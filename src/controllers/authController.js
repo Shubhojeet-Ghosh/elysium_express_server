@@ -13,9 +13,10 @@ const sendMagicLinkOrLogin = async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !validateEmail(email)) {
-    return res
-      .status(400)
-      .json({ success: false, message: "A valid email is required." });
+    return res.status(200).json({
+      success: false,
+      message: "A valid email is required.",
+    });
   }
 
   try {
@@ -25,15 +26,15 @@ const sendMagicLinkOrLogin = async (req, res) => {
 
       if (!user || !user.is_profile_complete) {
         return res
-          .status(401)
-          .json({ success: false, message: "Invalid credentials." });
+          .status(200)
+          .json({ success: false, message: "This email is not registered." });
       }
 
       const isMatch = await bcrypt.compare(password, user.password || "");
       if (!isMatch) {
         return res
-          .status(401)
-          .json({ success: false, message: "Invalid credentials." });
+          .status(200)
+          .json({ success: false, message: "Invalid Password." });
       }
 
       // Generate session token for 30 days
@@ -106,8 +107,8 @@ const verifyMagicLink = async (req, res) => {
     const decoded = verifyJwtToken(token);
     if (!decoded) {
       return res
-        .status(401)
-        .json({ success: false, message: "Invalid or expired token" });
+        .status(200)
+        .json({ success: false, message: "Invalid or expired token..." });
     }
 
     // 2. Find user
@@ -152,9 +153,9 @@ const completeProfile = async (req, res) => {
   const { first_name, last_name, password } = req.body;
 
   if (!first_name || !password) {
-    return res.status(400).json({
+    return res.status(200).json({
       success: false,
-      message: "first_name and password are required.",
+      message: "Please fill in all the fields.",
     });
   }
 
