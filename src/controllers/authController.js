@@ -76,7 +76,7 @@ const sendMagicLinkOrLogin = async (req, res) => {
       expiresIn: 5,
     });
 
-    await sendHtmlEmail({
+    sendHtmlEmail({
       to: email,
       subject: "Your Magic Login Link - Elysium Chat",
       html,
