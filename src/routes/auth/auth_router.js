@@ -15,4 +15,6 @@ router.post(
   authController.completeProfile
 );
 
+router.post("/verify-google-login", authController.verifyGoogleLogin);
+
 module.exports = router;

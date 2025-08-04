@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema(
     password: { type: String },
     first_name: { type: String },
     last_name: { type: String },
+    profile_image_url: { type: String, default: null },
     is_profile_complete: { type: Boolean, default: false },
   },
   {

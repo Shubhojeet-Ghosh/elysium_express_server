@@ -3,6 +3,8 @@ const { generateJwtToken, verifyJwtToken } = require("../services/jwtService");
 const { generateMagicLinkEmail } = require("../services/emailTemplateService");
 const { sendHtmlEmail } = require("../services/emailSenderService");
 const { validateEmail } = require("../services/validateEmail");
+const { getGoogleUserInfo } = require("../services/googleAuthService");
+
 const User = require("../models/users");
 
 const bcrypt = require("bcrypt");
@@ -57,6 +59,7 @@ const sendMagicLinkOrLogin = async (req, res) => {
           email: user.email,
           first_name: user.first_name,
           last_name: user.last_name,
+          profile_image_url: user?.profile_image_url || null,
         },
       });
     }
@@ -138,6 +141,7 @@ const verifyMagicLink = async (req, res) => {
         email: user.email,
         first_name: user.first_name || "",
         last_name: user.last_name || "",
+        profile_image_url: user?.profile_image_url || null,
       },
     };
 
@@ -199,6 +203,7 @@ const completeProfile = async (req, res) => {
         email: updatedUser.email,
         first_name: updatedUser.first_name,
         last_name: updatedUser.last_name,
+        profile_image_url: updatedUser?.profile_image_url || null,
       },
     });
   } catch (err) {
@@ -207,4 +212,103 @@ const completeProfile = async (req, res) => {
   }
 };
 
-module.exports = { sendMagicLinkOrLogin, verifyMagicLink, completeProfile };
+const verifyGoogleLogin = async (req, res) => {
+  try {
+    const request_data = req.body;
+    const access_token = request_data?.access_token;
+
+    if (access_token == null || access_token == undefined) {
+      return res.json({
+        success: false,
+        message: "Google access token is missing.",
+      });
+    }
+
+    console.log("Access token received : ", access_token);
+
+    const user = await getGoogleUserInfo(access_token);
+
+    if (!user) {
+      return res.json({
+        success: false,
+        message: "Invalid or expired Google token.",
+      });
+    }
+
+    const { email, firstName, lastName, imageUrl } = user;
+
+    const existingUser = await User.findOne({
+      email: email.toLowerCase().trim(),
+    });
+
+    if (existingUser) {
+      const sessionPayload = {
+        user_id: existingUser._id,
+        email: existingUser.email,
+        first_name: existingUser.first_name,
+        last_name: existingUser.last_name,
+        is_profile_complete: existingUser.is_profile_complete,
+      };
+      const sessionToken = generateJwtToken(sessionPayload, "30d");
+      return res.json({
+        success: true,
+        message: "User verified.",
+        is_profile_complete: existingUser.is_profile_complete,
+        user: {
+          user_id: existingUser._id,
+          email: existingUser.email,
+          first_name: existingUser.first_name,
+          last_name: existingUser.last_name,
+          profile_image_url: existingUser?.profile_image_url || null,
+        },
+        sessionToken,
+      });
+    } else {
+      const newUser = await User.create({
+        email,
+        first_name: firstName,
+        last_name: lastName,
+        profile_image_url: imageUrl,
+      });
+      const sessionPayload = {
+        user_id: newUser._id,
+        email: newUser.email,
+        first_name: newUser.first_name,
+        last_name: newUser.last_name,
+        is_profile_complete: false,
+      };
+      const sessionToken = generateJwtToken(sessionPayload, "30d");
+      return res.json({
+        success: true,
+        message: "User verified.",
+        user: {
+          user_id: newUser._id,
+          email: newUser.email,
+          first_name: newUser.first_name,
+          last_name: newUser.last_name,
+          profile_image_url: newUser?.profile_image_url || null,
+        },
+        sessionToken,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "User verified.",
+      user: user,
+    });
+  } catch (error) {
+    console.log("Something went wrong : ", error);
+    return res.json({
+      success: false,
+      message: "Something went wrong.",
+    });
+  }
+};
+
+module.exports = {
+  sendMagicLinkOrLogin,
+  verifyMagicLink,
+  completeProfile,
+  verifyGoogleLogin,
+};
