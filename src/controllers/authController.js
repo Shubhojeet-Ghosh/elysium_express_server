@@ -154,7 +154,7 @@ const verifyMagicLink = async (req, res) => {
 
 const completeProfile = async (req, res) => {
   const user_id = req.user.user_id;
-  const { first_name, last_name, password } = req.body;
+  const { first_name, last_name, password, profile_image_url } = req.body;
 
   if (!first_name || !password) {
     return res.status(200).json({
@@ -173,6 +173,7 @@ const completeProfile = async (req, res) => {
         last_name: last_name || "",
         password: hashedPassword,
         is_profile_complete: true,
+        profile_image_url: profile_image_url || null,
       },
       { new: true }
     );
