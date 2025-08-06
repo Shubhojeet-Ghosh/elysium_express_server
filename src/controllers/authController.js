@@ -282,6 +282,7 @@ const verifyGoogleLogin = async (req, res) => {
       return res.json({
         success: true,
         message: "User verified.",
+        is_profile_complete: false,
         user: {
           user_id: newUser._id,
           email: newUser.email,
