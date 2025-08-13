@@ -3,9 +3,7 @@ const { version: appVersion } = require("../package.json");
 
 const app = require("./app");
 const { setupSocket } = require("./sockets");
-
-const server = http.createServer(app);
-setupSocket(server);
+const { connectRedis } = require("./config/redisClient");
 
 const PORT = process.env.PORT || 3000;
 
@@ -20,6 +18,22 @@ app.get("/", (req, res) => {
   );
 });
 
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+(async () => {
+  try {
+    // Ensure Redis is connected before starting server
+    await connectRedis();
+
+    const server = http.createServer(app);
+
+    // Setup WebSocket
+    setupSocket(server);
+
+    // Start listening
+    server.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (err) {
+    console.error("Failed to start server:", err.message);
+    process.exit(1);
+  }
+})();
