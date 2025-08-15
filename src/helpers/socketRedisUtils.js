@@ -10,7 +10,7 @@ async function addUserSocketId(
   expiryInSeconds = 3600,
   metadata = {}
 ) {
-  const key = `${SOCKET_KEY_PREFIX}:${userId}:sockets`;
+  const key = `${SOCKET_KEY_PREFIX}-${userId}-sockets`;
   const data = {
     connected_at: new Date().toISOString(),
     ...metadata, // e.g., ip, user_agent, location, etc.
@@ -23,7 +23,7 @@ async function addUserSocketId(
  * Get all socket IDs for a user as a list.
  */
 async function getUserSocketIds(userId) {
-  const key = `${SOCKET_KEY_PREFIX}:${userId}:sockets`;
+  const key = `${SOCKET_KEY_PREFIX}-${userId}-sockets`;
   const socketIds = await redisClient.hKeys(key); // returns list of field names (i.e., socket IDs)
   return socketIds || []; // fallback to empty list if null
 }
@@ -32,7 +32,7 @@ async function getUserSocketIds(userId) {
  * Get all socket metadata for a user.
  */
 async function getUserSocketMetadata(userId) {
-  const key = `${SOCKET_KEY_PREFIX}:${userId}:sockets`;
+  const key = `${SOCKET_KEY_PREFIX}-${userId}-sockets`;
   const raw = await redisClient.hGetAll(key);
   const result = {};
   for (const socketId in raw) {
@@ -49,7 +49,7 @@ async function getUserSocketMetadata(userId) {
  * Remove a specific socket ID for a user.
  */
 async function removeUserSocketId(userId, socketId) {
-  const key = `${SOCKET_KEY_PREFIX}:${userId}:sockets`;
+  const key = `${SOCKET_KEY_PREFIX}-${userId}-sockets`;
   await redisClient.hDel(key, socketId);
 }
 
@@ -57,7 +57,7 @@ async function removeUserSocketId(userId, socketId) {
  * Remove all socket connections for a user.
  */
 async function removeAllUserSocketIds(userId) {
-  const key = `${SOCKET_KEY_PREFIX}:${userId}:sockets`;
+  const key = `${SOCKET_KEY_PREFIX}-${userId}-sockets`;
   await redisClient.del(key);
 }
 
@@ -71,7 +71,7 @@ const getAllConnectedUsers = async () => {
 
     do {
       const result = await redisClient.scan(cursor, {
-        MATCH: "user:*:sockets",
+        MATCH: "user-*-sockets",
         COUNT: 100,
       });
 
@@ -79,7 +79,11 @@ const getAllConnectedUsers = async () => {
       const keys = result.keys;
 
       for (const key of keys) {
-        const user_id = key.split(":")[1];
+        const user_id = key.slice(
+          SOCKET_KEY_PREFIX.length + 1,
+          key.lastIndexOf("-sockets")
+        );
+
         const raw = await redisClient.hGetAll(key);
 
         const sockets = Object.entries(raw).map(([socketId, value]) => {
@@ -113,7 +117,7 @@ const removeAllConnectedUsers = async () => {
 
     do {
       const result = await redisClient.scan(cursor, {
-        MATCH: "user:*:sockets",
+        MATCH: "user-*-sockets",
         COUNT: 100,
       });
 

@@ -1,5 +1,6 @@
 const { Server } = require("socket.io");
 const socketAuthMiddleware = require("./authMiddleware"); // adjust path if needed
+const { addToContacts } = require("../helpers/elysium_chat/contactHandlers");
 
 const {
   addUserSocketId,
@@ -18,13 +19,13 @@ function setupSocket(server) {
   io.on("connection", async (socket) => {
     console.log("[event:connect] socket connected:", socket.id);
     const user = socket.data.user;
-    // await removeAllConnectedUsers();
+
     if (user && user.user_id) {
       await addUserSocketId(user.user_id, socket.id);
       const socketIds = await getUserSocketIds(user.user_id);
       // console.log(`socketIds for user ${user.user_id}`, socketIds);
       const connectedUsers = await getAllConnectedUsers();
-      // console.log("connectedUsers", JSON.stringify(connectedUsers, null, 2));
+      console.log("connectedUsers", JSON.stringify(connectedUsers, null, 2));
       console.log("Number of connected users", connectedUsers.length);
     }
     // Example listener
@@ -32,6 +33,11 @@ function setupSocket(server) {
       console.log("[event:ping] socket.data.user", socket.data.user);
       console.log("Received ping:", data);
       socket.emit("pong", { message: "pong!" });
+    });
+
+    socket.on("add-to-contacts", async (data) => {
+      console.log("Received add-to-contacts:", socket.data.user);
+      await addToContacts(io, socket, data);
     });
 
     socket.on("disconnect", async (reason) => {
@@ -55,7 +61,7 @@ function setupSocket(server) {
         );
       }
       const connectedUsers = await getAllConnectedUsers();
-      // console.log("connectedUsers", connectedUsers);
+      console.log("connectedUsers", JSON.stringify(connectedUsers, null, 2));
       console.log("Number of connected users", connectedUsers.length);
     });
   });

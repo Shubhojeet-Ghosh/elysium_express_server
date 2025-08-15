@@ -27,7 +27,7 @@ function socketAuthMiddleware(socket, next) {
   try {
     const rawToken =
       socket.handshake.headers?.token || socket.handshake.auth?.token;
-    // console.log("[event:connect] rawToken", rawToken.slice(0, 20));
+    console.log("[event:connect] rawToken", rawToken.slice(0, 20));
     if (rawToken) {
       const decoded = authenticateSocketToken(rawToken, socket);
       if (!decoded) return next(new Error("Invalid or expired token"));
