@@ -2,6 +2,18 @@ const User = require("../../models/users");
 const Contacts = require("../../models/contacts");
 const { broadcastContactAdded } = require("./socketBroadcasters");
 
+async function ensureContactsDocument(userIdStr, email) {
+  const existing = await Contacts.findById(userIdStr);
+  if (!existing) {
+    await Contacts.create({
+      _id: userIdStr,
+      email,
+      contacts: [],
+      pending_requests: [],
+    });
+  }
+}
+
 async function addToContacts(io, socket, data) {
   const sender = socket.data.user;
   const contactEmail = data.contact_email;
@@ -27,10 +39,14 @@ async function addToContacts(io, socket, data) {
     const receiverIdStr = receiver._id.toString();
     const senderIdStr = sender.user_id;
 
-    // 1. Update receiver's pending_requests if not already present
-    await Contacts.findOneAndUpdate(
+    // ✅ Step 1: Ensure both contacts documents exist
+    await ensureContactsDocument(receiverIdStr, receiver.email);
+    await ensureContactsDocument(senderIdStr, sender.email);
+
+    // ✅ Step 2: Add sender to receiver's pending_requests
+    await Contacts.updateOne(
       {
-        _id: receiver._id,
+        _id: receiverIdStr,
         "pending_requests.user_id": { $ne: senderIdStr },
       },
       {
@@ -40,19 +56,11 @@ async function addToContacts(io, socket, data) {
             sent_at: new Date(),
           },
         },
-      },
-      { new: true, upsert: false }
+      }
     );
 
-    // Ensure contact doc exists for receiver
+    // ✅ Step 3: Add receiver to sender's contacts
     await Contacts.updateOne(
-      { _id: receiver._id },
-      { $setOnInsert: { email: receiver.email } },
-      { upsert: true }
-    );
-
-    // 2. Update sender's contacts if not already present
-    await Contacts.findOneAndUpdate(
       {
         _id: senderIdStr,
         "contacts.user_id": { $ne: receiverIdStr },
@@ -65,15 +73,7 @@ async function addToContacts(io, socket, data) {
             added_at: new Date(),
           },
         },
-      },
-      { new: true, upsert: false }
-    );
-
-    // Ensure contact doc exists for sender
-    await Contacts.updateOne(
-      { _id: senderIdStr },
-      { $setOnInsert: { email: sender.email } },
-      { upsert: true }
+      }
     );
 
     socket.emit("contact-request-sent", {
