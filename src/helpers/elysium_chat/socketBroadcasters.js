@@ -26,6 +26,32 @@ async function broadcastContactAdded(io, sender, receiver) {
   );
 }
 
+async function broadcastContactAccepted(io, accepter, sender) {
+  const senderSocketIds = await getUserSocketIds(sender._id.toString());
+
+  if (!senderSocketIds.length) {
+    console.log(`[Broadcast] No active sockets for ${sender.email}`);
+    return;
+  }
+
+  const message = `${
+    accepter.first_name || accepter.email
+  } has accepted your contact request.`;
+
+  senderSocketIds.forEach((socketId) => {
+    io.to(socketId).emit("contact-accepted", {
+      from: accepter.first_name || accepter.email,
+      email: accepter.email,
+      message,
+    });
+  });
+
+  console.log(
+    `[Broadcast] Sent contact accepted notification to ${sender.email}`
+  );
+}
+
 module.exports = {
   broadcastContactAdded,
+  broadcastContactAccepted,
 };

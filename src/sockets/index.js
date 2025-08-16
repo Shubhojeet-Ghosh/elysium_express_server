@@ -1,6 +1,9 @@
 const { Server } = require("socket.io");
 const socketAuthMiddleware = require("./authMiddleware"); // adjust path if needed
-const { addToContacts } = require("../helpers/elysium_chat/contactHandlers");
+const {
+  addToContacts,
+  acceptToConnect,
+} = require("../helpers/elysium_chat/contactHandlers");
 
 const {
   addUserSocketId,
@@ -38,6 +41,11 @@ function setupSocket(server) {
     socket.on("add-to-contacts", async (data) => {
       console.log("Received add-to-contacts:", socket.data.user);
       await addToContacts(io, socket, data);
+    });
+
+    socket.on("accept-to-connect", async (data) => {
+      console.log("Received accept-to-connect:", socket.data.user);
+      await acceptToConnect(io, socket, data);
     });
 
     socket.on("disconnect", async (reason) => {

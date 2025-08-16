@@ -7,6 +7,7 @@ const contactEntrySchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    alias_name: { type: String, default: null },
     status: {
       type: String,
       enum: ["pending", "accepted", "blocked"],

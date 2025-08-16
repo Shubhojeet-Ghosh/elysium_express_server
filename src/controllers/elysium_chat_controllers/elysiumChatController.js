@@ -63,6 +63,42 @@ const getUserByEmail = async (req, res) => {
   }
 };
 
+const getUserContactList = async (req, res) => {
+  try {
+    const current_user_id = req.user.user_id;
+    console.log("Getting the contact list for user:", req.user.email);
+    const contactsDoc = await Contacts.findOne({ _id: current_user_id });
+
+    if (!contactsDoc) {
+      return res.json({
+        success: true,
+        contacts: [],
+      });
+    }
+
+    const contacts = contactsDoc.contacts.map((contact) => ({
+      user_id: contact.user_id,
+      email: contact.email,
+      alias_name: contact.alias_name,
+      status: contact.status,
+    }));
+
+    console.log("Contact list:", contacts.length);
+    return res.json({
+      success: true,
+      contacts: contacts,
+    });
+  } catch (error) {
+    console.error("Error fetching user contact list:", error);
+    return res.json({
+      success: false,
+      message: "Something went wrong.",
+      tech_message: error.message,
+    });
+  }
+};
+
 module.exports = {
   getUserByEmail,
+  getUserContactList,
 };

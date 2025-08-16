@@ -11,4 +11,10 @@ router.post(
   elysiumChatController.getUserByEmail
 );
 
+router.post(
+  "/get-contact-list",
+  authenticateToken,
+  elysiumChatController.getUserContactList
+);
+
 module.exports = router;
