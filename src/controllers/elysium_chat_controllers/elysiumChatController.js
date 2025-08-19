@@ -1,5 +1,6 @@
 const User = require("../../models/users");
 const Contacts = require("../../models/contacts");
+const ContactRelation = require("../../models/contact_relations");
 
 const getUserByEmail = async (req, res) => {
   const current_user_id = req.user.user_id;
@@ -24,21 +25,15 @@ const getUserByEmail = async (req, res) => {
 
     // Ensure current_user_id is passed and not same as the searched user
     if (current_user_id && current_user_id !== user._id.toString()) {
-      const contactsDoc = await Contacts.findOne({ _id: current_user_id });
+      // Look up the relation
+      const relation = await ContactRelation.findOne({
+        user_id: current_user_id,
+        contact_id: user._id.toString(),
+      });
 
-      if (contactsDoc && Array.isArray(contactsDoc.contacts)) {
-        const contactEntry = contactsDoc.contacts.find(
-          (c) => c.user_id === user._id.toString()
-        );
-
-        if (contactEntry) {
-          status = contactEntry.status;
-          //   is this correct?
-          is_contact =
-            status === "accepted" ||
-            status === "pending" ||
-            status === "blocked";
-        }
+      if (relation) {
+        status = relation.status;
+        is_contact = ["accepted", "pending", "blocked"].includes(status);
       }
     }
 
@@ -66,27 +61,48 @@ const getUserByEmail = async (req, res) => {
 const getUserContactList = async (req, res) => {
   try {
     const current_user_id = req.user.user_id;
-    console.log("Getting the contact list for user:", req.user.email);
-    const contactsDoc = await Contacts.findOne({ _id: current_user_id });
+    const { status = "accepted" } = req.body; // default to accepted if not provided
 
-    if (!contactsDoc) {
-      return res.json({
-        success: true,
-        contacts: [],
-      });
+    console.log(`Getting '${status}' contact list for user:`, req.user.email);
+
+    // Step 1: Get relations for the given status
+    const relations = await ContactRelation.find({
+      user_id: current_user_id,
+      status,
+    });
+
+    if (!relations.length) {
+      return res.json({ success: true, contacts: [] });
     }
 
-    const contacts = contactsDoc.contacts.map((contact) => ({
-      user_id: contact.user_id,
-      email: contact.email,
-      alias_name: contact.alias_name,
-      status: contact.status,
-    }));
+    // Step 2: Collect all contact_ids
+    const contactIds = relations.map((r) => r.contact_id);
 
-    console.log("Contact list:", contacts.length);
+    // Step 3: Fetch users matching those contact_ids
+    const users = await User.find(
+      { _id: { $in: contactIds } },
+      "first_name last_name profile_image_url email"
+    ).lean();
+
+    // Step 4: Merge relations with user info
+    const contacts = relations.map((relation) => {
+      const user = users.find((u) => u._id.toString() === relation.contact_id);
+      return {
+        user_id: relation.contact_id,
+        email: user?.email || "",
+        first_name: user?.first_name || "",
+        last_name: user?.last_name || "",
+        profile_image_url: user?.profile_image_url || null,
+        alias_name: relation.alias_name || null,
+        status: relation.status,
+      };
+    });
+
+    console.log(`${status} contact list:`, contacts.length);
+
     return res.json({
       success: true,
-      contacts: contacts,
+      contacts,
     });
   } catch (error) {
     console.error("Error fetching user contact list:", error);

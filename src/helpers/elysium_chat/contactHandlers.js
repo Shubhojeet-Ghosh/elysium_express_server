@@ -1,5 +1,6 @@
 const User = require("../../models/users");
 const Contacts = require("../../models/contacts");
+const ContactRelation = require("../../models/contact_relations");
 const {
   broadcastContactAdded,
   broadcastContactAccepted,
@@ -24,6 +25,7 @@ async function addToContacts(io, socket, data) {
   console.log(`Adding ${contactEmail} to ${sender.email}'s contacts`);
 
   try {
+    // Step 1: Find the receiver user
     const receiver = await User.findOne({ email: contactEmail });
     if (!receiver) {
       return socket.emit("contact-error", {
@@ -42,52 +44,38 @@ async function addToContacts(io, socket, data) {
     const receiverIdStr = receiver._id.toString();
     const senderIdStr = sender.user_id;
 
-    // Step 1: Ensure both contacts documents exist
-    await ensureContactsDocument(receiverIdStr, receiver.email);
-    await ensureContactsDocument(senderIdStr, sender.email);
+    // Step 2: Ensure relation does not already exist
+    const existingRelation = await ContactRelation.findOne({
+      user_id: senderIdStr,
+      contact_id: receiverIdStr,
+    });
 
-    // Step 2: Add sender to receiver's pending_requests
-    await Contacts.updateOne(
-      {
-        _id: receiverIdStr,
-        "pending_requests.user_id": { $ne: senderIdStr },
-      },
-      {
-        $addToSet: {
-          pending_requests: {
-            user_id: senderIdStr,
-            sent_at: new Date(),
-          },
-        },
-      }
-    );
+    if (existingRelation) {
+      return socket.emit("contact-error", {
+        message: "Contact request already sent or already connected.",
+        tech_message: "Duplicate contact relation attempt.",
+      });
+    }
 
-    // Step 3: Add receiver to sender's contacts
-    await Contacts.updateOne(
-      {
-        _id: senderIdStr,
-        "contacts.user_id": { $ne: receiverIdStr },
-      },
-      {
-        $addToSet: {
-          contacts: {
-            user_id: receiverIdStr,
-            alias_name: data.alias_name || receiver.first_name || "",
-            status: "pending",
-            added_at: new Date(),
-          },
-        },
-      }
-    );
+    // Step 3: Create relation from sender → receiver with pending status
+    await ContactRelation.create({
+      user_id: senderIdStr,
+      contact_id: receiverIdStr,
+      alias_name: data.alias_name || receiver.first_name || "",
+      status: "pending",
+      initiated_by: senderIdStr,
+    });
 
+    // Step 4: Notify sender
     socket.emit("contact-request-sent", {
       message: `Request sent to ${receiver.first_name}`,
     });
 
+    // Step 5: Optionally broadcast event to receiver (if online)
     await broadcastContactAdded(io, sender, receiver);
 
     console.log(
-      `Pending request from ${sender.email} to ${receiver.email} saved.`
+      `Pending request from ${sender.email} to ${receiver.email} saved in contact_relations.`
     );
   } catch (error) {
     console.error("Error in addToContacts:", error);
@@ -107,7 +95,7 @@ async function acceptToConnect(io, socket, data) {
       `Accepting contact request from ${contactEmail} for ${currentUser.email}`
     );
 
-    // Step 1: Get the other user (sender of the request)
+    // Step 1: Get the sender of the original request
     const senderUser = await User.findOne({ email: contactEmail });
     if (!senderUser) {
       return socket.emit("contact-error", {
@@ -119,32 +107,43 @@ async function acceptToConnect(io, socket, data) {
     const currentUserIdStr = currentUser.user_id;
     const senderUserIdStr = senderUser._id.toString();
 
-    // Step 2: Remove sender from current user's pending_requests
-    await Contacts.updateOne(
-      { _id: currentUserIdStr },
-      { $pull: { pending_requests: { user_id: senderUserIdStr } } }
-    );
+    // Step 2: Find the pending relation (sender -> currentUser)
+    const relation = await ContactRelation.findOne({
+      user_id: senderUserIdStr,
+      contact_id: currentUserIdStr,
+      status: "pending",
+    });
 
-    // Step 3: Add sender to current user's contacts (status: accepted)
-    await Contacts.updateOne(
-      { _id: currentUserIdStr, "contacts.user_id": { $ne: senderUserIdStr } },
-      {
-        $addToSet: {
-          contacts: {
-            user_id: senderUserIdStr,
-            alias_name: data.alias_name || senderUser.first_name || "",
-            status: "accepted",
-            added_at: new Date(),
-          },
-        },
-      }
-    );
+    if (!relation) {
+      return socket.emit("contact-error", {
+        message: "No pending request found from this user.",
+        tech_message: "No matching pending relation in DB",
+      });
+    }
 
-    // Step 4: Update sender's contact entry for current user to status: accepted
-    await Contacts.updateOne(
-      { _id: senderUserIdStr, "contacts.user_id": currentUserIdStr },
-      { $set: { "contacts.$.status": "accepted" } }
-    );
+    // Step 3: Update sender -> currentUser relation to accepted
+    relation.status = "accepted";
+    await relation.save();
+
+    // Step 4: Create mirrored relation (currentUser -> sender)
+    const existingMirror = await ContactRelation.findOne({
+      user_id: currentUserIdStr,
+      contact_id: senderUserIdStr,
+    });
+
+    if (!existingMirror) {
+      await ContactRelation.create({
+        user_id: currentUserIdStr,
+        contact_id: senderUserIdStr,
+        alias_name: data.alias_name || senderUser.first_name || "",
+        status: "accepted",
+        initiated_by: relation.initiated_by, // original initiator stays same
+      });
+    } else {
+      // Just in case it exists but isn't accepted yet
+      existingMirror.status = "accepted";
+      await existingMirror.save();
+    }
 
     // Step 5: Notify sender that their request was accepted
     await broadcastContactAccepted(io, currentUser, senderUser);
@@ -152,6 +151,11 @@ async function acceptToConnect(io, socket, data) {
     console.log(
       `Contact request from ${senderUser.email} accepted by ${currentUser.email}`
     );
+
+    // Send ack to the current user too
+    socket.emit("contact-accepted", {
+      message: `You are now connected with ${senderUser.first_name}`,
+    });
   } catch (error) {
     console.error("Error in acceptToConnect:", error);
     socket.emit("contact-error", {
