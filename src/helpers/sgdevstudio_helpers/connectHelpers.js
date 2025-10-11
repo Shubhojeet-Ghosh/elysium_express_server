@@ -47,11 +47,22 @@ const registerConnectRequest = async (name, email, message) => {
   }
 };
 
-const registerVisitorHelper = async () => {
+const registerVisitorHelper = async (reqData) => {
   try {
     const client_id = `cl-${uuidv4()}`;
-    const client = new SGDevStudioClient({ client_id, created_at: new Date() });
+    client_details = {
+      client_id,
+      ip: reqData?.ip || "",
+      country_name: reqData?.country_name || "",
+      city: reqData?.city || "",
+      created_at: new Date(),
+    };
+    const client = new SGDevStudioClient(client_details);
     await client.save();
+    console.log(
+      "Client Registered Successfully with IP : ",
+      client_details?.ip
+    );
     return { success: true, client_id };
   } catch (error) {
     console.error("Error in registerVisitorHelper:", error);

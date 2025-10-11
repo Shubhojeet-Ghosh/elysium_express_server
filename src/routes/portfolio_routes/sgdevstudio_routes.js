@@ -5,7 +5,7 @@ const sgdevstudioController = require("../../controllers/portfolio_controllers/s
 
 router.post("/contact-submission", sgdevstudioController.contactSubmission);
 
-router.get(
+router.post(
   "/register-visitor",
   sgdevstudioController.registerVisitorController
 );

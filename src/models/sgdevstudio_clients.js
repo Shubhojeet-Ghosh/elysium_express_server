@@ -6,6 +6,15 @@ const sgdevstudioClientSchema = new mongoose.Schema({
     required: true,
     unique: true, // ensures no duplicate client_id
   },
+  ip: {
+    type: String,
+  },
+  country_name: {
+    type: String,
+  },
+  city: {
+    type: String,
+  },
   created_at: {
     type: Date,
     default: () => new Date(), // manually set current UTC time

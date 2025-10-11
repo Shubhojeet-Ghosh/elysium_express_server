@@ -28,7 +28,11 @@ const contactSubmission = async (req, res) => {
 
 const registerVisitorController = async (req, res) => {
   try {
-    register_result = await registerVisitorHelper();
+    const redBody = req.body;
+
+    console.log("Registor Request from Client Details", redBody);
+    register_result = await registerVisitorHelper(redBody);
+
     if (register_result.success) {
       return res.status(200).json({
         success: true,
