@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 const messageSchema = new mongoose.Schema(
   {
-    message: { type: String, required: true },
+    message: { type: String },
     date: { type: Date, default: Date.now },
   },
   { _id: false } // 👈 this disables the automatic _id for each message
@@ -12,7 +12,6 @@ const contactSubmissionSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: true,
       trim: true,
     },
     email: {
