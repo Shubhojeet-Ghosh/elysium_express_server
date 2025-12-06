@@ -77,7 +77,7 @@ const sendMagicLinkOrLogin = async (req, res) => {
       email: user.email,
     };
     const magicToken = generateJwtToken(tokenPayload, "5m");
-    const magicLink = `${FRONTEND_BASE_URL}/elysium-atlas/auth/verify?token=${magicToken}`;
+    const magicLink = `${FRONTEND_BASE_URL}/auth/verify?token=${magicToken}`;
     const html = generateMagicLinkEmail({
       email,
       magicLink,
