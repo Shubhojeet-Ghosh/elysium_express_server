@@ -11,7 +11,8 @@ const ElysiumAtlasUser = require("../models/elysium_atlas_users");
 
 const bcrypt = require("bcrypt");
 
-const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || "localhost:3000";
+const ATLAS_FRONTEND_BASE_URL =
+  process.env.ATLAS_FRONTEND_BASE_URL || "localhost:3000";
 
 const sendMagicLinkOrLogin = async (req, res) => {
   const { email, password } = req.body;
@@ -77,7 +78,7 @@ const sendMagicLinkOrLogin = async (req, res) => {
       email: user.email,
     };
     const magicToken = generateJwtToken(tokenPayload, "5m");
-    const magicLink = `${FRONTEND_BASE_URL}/auth/verify?token=${magicToken}`;
+    const magicLink = `${ATLAS_FRONTEND_BASE_URL}/auth/verify?token=${magicToken}`;
     const html = generateMagicLinkEmail({
       email,
       magicLink,
