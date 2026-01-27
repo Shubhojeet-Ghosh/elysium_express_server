@@ -5,6 +5,7 @@ const dotenv = require("dotenv");
 dotenv.config();
 
 const routes = require("./routes");
+const allowedOrigins = require("./config/corsOrigins");
 
 const connectToMongo = require("./db/mongo");
 
@@ -20,11 +21,7 @@ const corsOptions =
         origin: true,
       }
     : {
-        origin: [
-          "http://localhost:3000",
-          "https://sgdevstudio.in",
-          "https://www.sgdevstudio.in",
-        ],
+        origin: allowedOrigins,
         credentials: true,
       };
 
