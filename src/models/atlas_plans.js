@@ -27,6 +27,12 @@ const atlasPlansSchema = new mongoose.Schema(
       // Populate later with resource limits, e.g.:
       // { api_calls: 1000, messages: 500, storage_mb: 100 }
     },
+    validity_days: {
+      type: Number,
+      default: null,
+      // Number of days this plan is valid for from the start date.
+      // null = lifetime / no expiry.
+    },
   },
   {
     timestamps: true,

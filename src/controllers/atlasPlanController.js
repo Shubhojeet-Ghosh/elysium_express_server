@@ -1,7 +1,11 @@
 const {
   getFullUserPlanInfo,
 } = require("../services/atlasUserPlanQueryService");
-const { ensureTrialPlan } = require("../services/atlasUserPlanService");
+const {
+  ensureTrialPlan,
+  assignPlanToUser,
+} = require("../services/atlasUserPlanService");
+const { getUserIdByEmail } = require("../services/atlasUserService");
 
 /**
  * POST /elysium-atlas/v1/plan/info
@@ -47,4 +51,61 @@ const getUserPlanInfo = async (req, res) => {
   }
 };
 
-module.exports = { getUserPlanInfo };
+/**
+ * POST /elysium-atlas/v1/plan/assign
+ *
+ * Internal endpoint — assigns a plan to a user.
+ * Requires application_secret_key in the payload for authorization.
+ *
+ * Body: { application_secret_key, user_id, plan_id }
+ */
+const assignPlan = async (req, res) => {
+  try {
+    const { application_secret_key, user_id, email, plan_id } = req.body;
+
+    if (!application_secret_key || (!user_id && !email) || !plan_id) {
+      return res.status(200).json({
+        success: false,
+        message:
+          "application_secret_key, plan_id and either user_id or email are required.",
+      });
+    }
+
+    // Validate secret key.
+    if (application_secret_key !== process.env.APPLICATION_SECRET_KEY) {
+      return res.status(200).json({
+        success: false,
+        message: "Invalid application secret key.",
+      });
+    }
+
+    // Resolve user_id from email if not directly provided.
+    let resolvedUserId = user_id;
+    if (!resolvedUserId && email) {
+      resolvedUserId = await getUserIdByEmail(email);
+      if (!resolvedUserId) {
+        return res.status(200).json({
+          success: false,
+          message: `No user found for email '${email.trim().toLowerCase()}'.`,
+        });
+      }
+    }
+
+    const result = await assignPlanToUser(resolvedUserId, plan_id);
+
+    if (!result.success) {
+      return res.status(200).json({ success: false, message: result.message });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      plan: result.plan,
+    });
+  } catch (err) {
+    console.error("[assignPlan]", err);
+    return res.status(500).json({ success: false, message: "Server error." });
+  }
+};
+
+module.exports = { getUserPlanInfo, assignPlan };

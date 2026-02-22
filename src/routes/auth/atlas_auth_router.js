@@ -28,4 +28,7 @@ router.post(
   atlasPlanController.getUserPlanInfo,
 );
 
+// POST /elysium-atlas/v1/plan/assign  (internal — secured via application_secret_key)
+router.post("/v1/plan/assign", atlasPlanController.assignPlan);
+
 module.exports = router;
