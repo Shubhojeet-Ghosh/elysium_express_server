@@ -12,7 +12,7 @@ const AtlasUserAvailablePlanLimits = require("../models/atlas_user_available_pla
  * Returns selected fields only.
  */
 const getUserPlanByUserId = async (user_id) => {
-  return AtlasUserPlan.findOne({ user_id: String(user_id) })
+  return AtlasUserPlan.findOne({ user_id: String(user_id), is_active: true })
     .select(
       "plan_id plan_name is_active status billing_cycle expires_at trial_ends_at notes",
     )
