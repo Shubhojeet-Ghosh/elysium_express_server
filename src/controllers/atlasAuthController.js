@@ -1,5 +1,6 @@
 const { findOrCreateUserByEmail } = require("../services/atlasUserService");
 const { generateJwtToken, verifyJwtToken } = require("../services/jwtService");
+const { ensureTrialPlan } = require("../services/atlasUserPlanService");
 const {
   generateMagicLinkEmail,
 } = require("../services/atlasAuthEmailTemplateService");
@@ -54,6 +55,12 @@ const sendMagicLinkOrLogin = async (req, res) => {
         source: "elysium-atlas",
       };
       const sessionToken = generateJwtToken(sessionPayload, "30d");
+
+      // Grant a 7-day trial to users who pre-date plan integration (fire-and-forget).
+      ensureTrialPlan(
+        user._id,
+        "Auto-assigned 7-day trial on first login (pre-plan-integration account).",
+      );
 
       return res.status(200).json({
         success: true,
@@ -130,7 +137,13 @@ const verifyMagicLink = async (req, res) => {
         .json({ success: false, message: "User not found" });
     }
 
-    // 3. Issue new session token (valid 30 days)
+    // 3. Assign trial plan for new users, or for old users with no plan record (fire-and-forget).
+    ensureTrialPlan(
+      user._id,
+      "Auto-assigned 7-day trial on magic-link verification.",
+    );
+
+    // 4. Issue new session token (valid 30 days)
     const sessionPayload = {
       user_id: user._id,
       email: user.email,
@@ -139,7 +152,7 @@ const verifyMagicLink = async (req, res) => {
     };
     const sessionToken = generateJwtToken(sessionPayload, "30d");
 
-    // 4. Build response
+    // 5. Build response
     const response = {
       success: true,
       sessionToken,
@@ -213,7 +226,7 @@ const updateProfile = async (req, res) => {
     const updatedUser = await ElysiumAtlasUser.findByIdAndUpdate(
       user_id,
       updateData,
-      { new: true }
+      { new: true },
     );
 
     if (!updatedUser) {
@@ -281,6 +294,12 @@ const verifyGoogleLogin = async (req, res) => {
     });
 
     if (existingUser) {
+      // Grant a 7-day trial to users who pre-date plan integration (fire-and-forget).
+      ensureTrialPlan(
+        existingUser._id,
+        "Auto-assigned 7-day trial on first Google login (pre-plan-integration account).",
+      );
+
       const sessionPayload = {
         user_id: existingUser._id,
         email: existingUser.email,
@@ -309,6 +328,13 @@ const verifyGoogleLogin = async (req, res) => {
         last_name: lastName,
         profile_image_url: imageUrl,
       });
+
+      // New Google sign-up — assign 7-day trial immediately (fire-and-forget).
+      ensureTrialPlan(
+        newUser._id,
+        "Auto-assigned 7-day trial on new Google sign-up.",
+      );
+
       const sessionPayload = {
         user_id: newUser._id,
         email: newUser.email,
