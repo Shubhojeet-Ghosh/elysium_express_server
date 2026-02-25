@@ -47,16 +47,8 @@ const sendMagicLinkOrLogin = async (req, res) => {
           .json({ success: false, message: "Invalid Password." });
       }
 
-      // Generate session token for 30 days
-      const sessionPayload = {
-        user_id: user._id,
-        email: user.email,
-        first_name: user.first_name,
-        last_name: user.last_name,
-        is_profile_complete: user.is_profile_complete,
-        source: "elysium-atlas",
-      };
-      const sessionToken = generateJwtToken(sessionPayload, "30d");
+      // Ensure the user has a personal team; create one if missing.
+      const team = await ensureTeam(user._id, user.first_name, user.email);
 
       // Grant a 7-day trial to users who pre-date plan integration (fire-and-forget).
       ensureTrialPlan(
@@ -64,8 +56,17 @@ const sendMagicLinkOrLogin = async (req, res) => {
         "Auto-assigned 7-day trial on first login (pre-plan-integration account).",
       );
 
-      // Ensure the user has a personal team; create one if missing.
-      const team = await ensureTeam(user._id, user.first_name, user.email);
+      // Generate session token for 30 days
+      const sessionPayload = {
+        user_id: user._id,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        is_profile_complete: user.is_profile_complete,
+        team_id: String(team._id),
+        source: "elysium-atlas",
+      };
+      const sessionToken = generateJwtToken(sessionPayload, "30d");
 
       return res.status(200).json({
         success: true,
@@ -149,17 +150,18 @@ const verifyMagicLink = async (req, res) => {
       "Auto-assigned 7-day trial on magic-link verification.",
     );
 
-    // 4. Issue new session token (valid 30 days)
+    // 4. Ensure the user has a personal team; create one if missing.
+    const team = await ensureTeam(user._id, user.first_name, user.email);
+
+    // 5. Issue new session token (valid 30 days)
     const sessionPayload = {
       user_id: user._id,
       email: user.email,
       first_name: user.first_name || "",
       last_name: user.last_name || "",
+      team_id: String(team._id),
     };
     const sessionToken = generateJwtToken(sessionPayload, "30d");
-
-    // 5. Ensure the user has a personal team; create one if missing.
-    const team = await ensureTeam(user._id, user.first_name, user.email);
 
     // 6. Build response
     const response = {
@@ -254,6 +256,11 @@ const updateProfile = async (req, res) => {
       );
     }
 
+    // Fetch the user's personal team to include team_id in the token
+    const userTeam = await AtlasTeam.findOne({
+      owner_user_id: String(user_id),
+    });
+
     // Create new session token with updated profile info
     const sessionPayload = {
       user_id: updatedUser._id,
@@ -261,6 +268,7 @@ const updateProfile = async (req, res) => {
       first_name: updatedUser.first_name,
       last_name: updatedUser.last_name,
       is_profile_complete: updatedUser.is_profile_complete,
+      team_id: userTeam ? String(userTeam._id) : null,
     };
     const sessionToken = generateJwtToken(sessionPayload, "30d");
 
@@ -319,21 +327,22 @@ const verifyGoogleLogin = async (req, res) => {
         "Auto-assigned 7-day trial on first Google login (pre-plan-integration account).",
       );
 
-      const sessionPayload = {
-        user_id: existingUser._id,
-        email: existingUser.email,
-        first_name: existingUser.first_name,
-        last_name: existingUser.last_name,
-        is_profile_complete: existingUser.is_profile_complete,
-      };
-      const sessionToken = generateJwtToken(sessionPayload, "30d");
-
       // Ensure the user has a personal team; create one if missing.
       const existingUserTeam = await ensureTeam(
         existingUser._id,
         existingUser.first_name,
         existingUser.email,
       );
+
+      const sessionPayload = {
+        user_id: existingUser._id,
+        email: existingUser.email,
+        first_name: existingUser.first_name,
+        last_name: existingUser.last_name,
+        is_profile_complete: existingUser.is_profile_complete,
+        team_id: String(existingUserTeam._id),
+      };
+      const sessionToken = generateJwtToken(sessionPayload, "30d");
 
       return res.json({
         success: true,
@@ -376,6 +385,7 @@ const verifyGoogleLogin = async (req, res) => {
         first_name: newUser.first_name,
         last_name: newUser.last_name,
         is_profile_complete: false,
+        team_id: String(newUserTeam._id),
       };
       const sessionToken = generateJwtToken(sessionPayload, "30d");
       return res.json({
