@@ -6,7 +6,6 @@ const { validateEmail } = require("../services/validateEmail");
 const { getGoogleUserInfo } = require("../services/googleAuthService");
 
 const User = require("../models/users");
-const AtlasTeam = require("../models/atlas_teams");
 
 const bcrypt = require("bcrypt");
 
@@ -155,8 +154,7 @@ const verifyMagicLink = async (req, res) => {
 
 const completeProfile = async (req, res) => {
   const user_id = req.user.user_id;
-  const { first_name, last_name, password, profile_image_url, team_name } =
-    req.body;
+  const { first_name, last_name, password, profile_image_url } = req.body;
 
   if (!first_name || !password) {
     return res.status(200).json({
@@ -184,14 +182,6 @@ const completeProfile = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "User not found." });
-    }
-
-    // Update team_name in atlas_teams if provided
-    if (team_name?.trim()) {
-      await AtlasTeam.findOneAndUpdate(
-        { owner_user_id: String(user_id) },
-        { team_name: team_name.trim() },
-      );
     }
 
     // Create new session token with updated profile info
