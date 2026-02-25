@@ -12,7 +12,6 @@ const atlasUserPlanSchema = new mongoose.Schema(
     user_id: {
       type: String,
       required: true,
-      index: true,
     },
     plan_id: {
       type: String,

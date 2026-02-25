@@ -76,9 +76,6 @@ const atlasTeamSchema = new mongoose.Schema(
 
 // --- Compound indexes for common query patterns ---
 
-// Find a user's personal team quickly (used on every login)
-atlasTeamSchema.index({ owner_user_id: 1 });
-
 // List all teams owned by a user
 atlasTeamSchema.index({ owner_user_id: 1, is_active: 1 });
 
