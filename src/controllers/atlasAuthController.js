@@ -185,7 +185,8 @@ const verifyMagicLink = async (req, res) => {
 
 const updateProfile = async (req, res) => {
   const user_id = req.user.user_id;
-  const { first_name, last_name, password, profile_image_url, team_name } = req.body;
+  const { first_name, last_name, password, profile_image_url, team_name } =
+    req.body;
 
   try {
     // Build update object with only truthy values
