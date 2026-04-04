@@ -6,6 +6,7 @@ const allowedOrigins = [
   "http://localhost:3000",
   "https://sgdevstudio.in",
   "https://www.sgdevstudio.in",
+  "https://atlas.sgdevstudio.in",
 ];
 
 module.exports = allowedOrigins;
