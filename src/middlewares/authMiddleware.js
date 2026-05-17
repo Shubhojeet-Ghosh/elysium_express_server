@@ -20,4 +20,32 @@ function authenticateToken(req, res, next) {
   next();
 }
 
-module.exports = { authenticateToken };
+/**
+ * Internal atlas admin routes — expects APPLICATION_SECRET_KEY in the
+ * Authorization header (not the body). Supports raw value or Bearer <secret>.
+ */
+function authenticateApplicationSecret(req, res, next) {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(200).json({
+      success: false,
+      message: "Authorization header is required.",
+    });
+  }
+
+  const secret = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : authHeader.trim();
+
+  if (secret !== process.env.APPLICATION_SECRET_KEY) {
+    return res.status(200).json({
+      success: false,
+      message: "Invalid Authorization.",
+    });
+  }
+
+  next();
+}
+
+module.exports = { authenticateToken, authenticateApplicationSecret };

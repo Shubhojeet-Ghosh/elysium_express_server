@@ -1,6 +1,7 @@
 const AtlasUserPlan = require("../models/atlas_user_plans");
 const AtlasPlan = require("../models/atlas_plans");
 const AtlasUserAvailablePlanLimits = require("../models/atlas_user_available_plan_limits");
+const { applyPlanLimitDefaults } = require("../utils/planLimitDefaults");
 
 // ---------------------------------------------------------------------------
 // Granular query helpers — each fetches exactly one piece of data.
@@ -29,20 +30,18 @@ const getPlanDefinitionByPlanId = async (plan_id) => {
     .lean();
 };
 
+const LIMITS_DOC_METADATA_KEYS = new Set([
+  "_id",
+  "user_id",
+  "__v",
+  "createdAt",
+  "updatedAt",
+]);
+
 /**
  * Fetch the available (remaining) limits for a user from atlas_user_available_plan_limits.
- * Picks only the known limit keys; extra keys stored via strict:false are included via lean().
+ * Returns every limit field on the doc (e.g. max_visitor_message_chars) — not a fixed whitelist.
  */
-const AVAILABLE_LIMIT_KEYS = [
-  "ai_agents",
-  "ai_queries",
-  "max_file_size_mb",
-  "max_files",
-  "models_allowed",
-  "rate_limit_per_minute",
-  "training_urls_allowed",
-];
-
 const getAvailableLimitsByUserId = async (user_id) => {
   const doc = await AtlasUserAvailablePlanLimits.findOne({
     user_id: String(user_id),
@@ -51,12 +50,12 @@ const getAvailableLimitsByUserId = async (user_id) => {
   if (!doc) return null;
 
   const limits = {};
-  for (const key of AVAILABLE_LIMIT_KEYS) {
-    if (doc[key] !== undefined) {
-      limits[key] = doc[key];
+  for (const [key, value] of Object.entries(doc)) {
+    if (!LIMITS_DOC_METADATA_KEYS.has(key)) {
+      limits[key] = value;
     }
   }
-  return limits;
+  return applyPlanLimitDefaults(limits);
 };
 
 /**
@@ -79,8 +78,10 @@ const getFullUserPlanInfo = async (user_id) => {
 
   return {
     plan: userPlan,
-    original_limits: planDefinition?.plan_limits || null,
-    available_limits: availableLimits || null,
+    original_limits: planDefinition
+      ? applyPlanLimitDefaults(planDefinition.plan_limits || {})
+      : null,
+    available_limits: availableLimits,
   };
 };
 

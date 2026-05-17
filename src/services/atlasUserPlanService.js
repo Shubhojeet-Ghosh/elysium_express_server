@@ -1,8 +1,24 @@
 const AtlasUserPlan = require("../models/atlas_user_plans");
 const AtlasPlan = require("../models/atlas_plans");
 const AtlasUserAvailablePlanLimits = require("../models/atlas_user_available_plan_limits");
+const { applyPlanLimitDefaults } = require("../utils/planLimitDefaults");
 
 const STARTER_PLAN_ID = "trial-001";
+
+/**
+ * Copies all keys from atlas_plans.plan_limits onto the user's
+ * atlas_user_available_plan_limits doc (top-level fields), including
+ * max_visitor_message_chars and any future limit keys.
+ */
+const syncUserAvailableLimits = async (user_id, planLimits = {}) => {
+  const uid = String(user_id);
+  const limits = applyPlanLimitDefaults(planLimits);
+  await AtlasUserAvailablePlanLimits.findOneAndUpdate(
+    { user_id: uid },
+    { $set: limits },
+    { upsert: true, new: true },
+  );
+};
 
 /**
  * Ensures a user has at least one plan entry.
@@ -33,16 +49,9 @@ const ensureTrialPlan = async (user_id, notes = "") => {
         const existingPlanDoc = await AtlasPlan.findOne({
           plan_id: existing.plan_id,
         }).lean();
-        const existingPlanLimits = existingPlanDoc?.plan_limits || {};
-        await AtlasUserAvailablePlanLimits.findOneAndUpdate(
-          { user_id: uid },
-          {
-            $setOnInsert: {
-              user_id: uid,
-              ...existingPlanLimits,
-            },
-          },
-          { upsert: true, new: true },
+        await syncUserAvailableLimits(
+          uid,
+          existingPlanDoc?.plan_limits || {},
         );
       }
       return { created: false, plan: null };
@@ -74,21 +83,7 @@ const ensureTrialPlan = async (user_id, notes = "") => {
         notes || "Auto-assigned 7-day trial on account creation / first login.",
     });
 
-    // Build usage counters dynamically from plan_limits — store values exactly as defined in atlas_plans.
-    const planLimits = planDoc?.plan_limits || {};
-    const usageCounters = { ...planLimits };
-
-    // Create the usage tracking doc for this plan period (if not already exists).
-    await AtlasUserAvailablePlanLimits.findOneAndUpdate(
-      { user_id: uid },
-      {
-        $setOnInsert: {
-          user_id: uid,
-          ...usageCounters,
-        },
-      },
-      { upsert: true, new: true },
-    );
+    await syncUserAvailableLimits(uid, planDoc?.plan_limits || {});
 
     return { created: true, plan };
   } catch (err) {
@@ -148,15 +143,10 @@ const assignPlanToUser = async (user_id, plan_id) => {
     notes: `Plan assigned via internal API on ${now.toISOString()}.`,
   });
 
-  // 4. Update the existing available_plan_limits doc (or create if missing).
-  const planLimits = planDoc.plan_limits || {};
-  await AtlasUserAvailablePlanLimits.findOneAndUpdate(
-    { user_id: uid },
-    { $set: { ...planLimits } },
-    { upsert: true, new: true },
-  );
+  // 4. Sync every plan_limits key (incl. max_visitor_message_chars) to the user limits doc.
+  await syncUserAvailableLimits(uid, planDoc.plan_limits || {});
 
   return { success: true, plan, message: "Plan assigned successfully." };
 };
 
-module.exports = { ensureTrialPlan, assignPlanToUser };
+module.exports = { ensureTrialPlan, assignPlanToUser, syncUserAvailableLimits };

@@ -5,6 +5,10 @@ const {
   ensureTrialPlan,
   assignPlanToUser,
 } = require("../services/atlasUserPlanService");
+const {
+  createAtlasPlan,
+  updateAtlasPlan,
+} = require("../services/atlasPlanCatalogService");
 const { getUserIdByEmail } = require("../services/atlasUserService");
 
 /**
@@ -55,27 +59,18 @@ const getUserPlanInfo = async (req, res) => {
  * POST /elysium-atlas/v1/plan/assign
  *
  * Internal endpoint — assigns a plan to a user.
- * Requires application_secret_key in the payload for authorization.
+ * Secured via Authorization header (APPLICATION_SECRET_KEY).
  *
- * Body: { application_secret_key, user_id, plan_id }
+ * Body: { user_id | email, plan_id }
  */
 const assignPlan = async (req, res) => {
   try {
-    const { application_secret_key, user_id, email, plan_id } = req.body;
+    const { user_id, email, plan_id } = req.body;
 
-    if (!application_secret_key || (!user_id && !email) || !plan_id) {
+    if ((!user_id && !email) || !plan_id) {
       return res.status(200).json({
         success: false,
-        message:
-          "application_secret_key, plan_id and either user_id or email are required.",
-      });
-    }
-
-    // Validate secret key.
-    if (application_secret_key !== process.env.APPLICATION_SECRET_KEY) {
-      return res.status(200).json({
-        success: false,
-        message: "Invalid application secret key.",
+        message: "plan_id and either user_id or email are required.",
       });
     }
 
@@ -108,4 +103,76 @@ const assignPlan = async (req, res) => {
   }
 };
 
-module.exports = { getUserPlanInfo, assignPlan };
+/**
+ * POST /elysium-atlas/v1/plan/create
+ *
+ * Internal endpoint — creates a plan definition in atlas_plans.
+ * Secured via Authorization header (APPLICATION_SECRET_KEY).
+ *
+ * Body: { plan_id, plan_name, ...optional fields }
+ */
+const createPlan = async (req, res) => {
+  try {
+    const { plan_id, plan_name, ...rest } = req.body;
+
+    if (!plan_id || !plan_name) {
+      return res.status(200).json({
+        success: false,
+        message: "plan_id and plan_name are required.",
+      });
+    }
+
+    const result = await createAtlasPlan({ plan_id, plan_name, ...rest });
+
+    if (!result.success) {
+      return res.status(200).json({ success: false, message: result.message });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      plan: result.plan,
+    });
+  } catch (err) {
+    console.error("[createPlan]", err);
+    return res.status(500).json({ success: false, message: "Server error." });
+  }
+};
+
+/**
+ * POST /elysium-atlas/v1/plan/update
+ *
+ * Internal endpoint — updates a plan definition by plan_id.
+ * Secured via Authorization header (APPLICATION_SECRET_KEY).
+ *
+ * Body: { plan_id, ...fields to update }
+ */
+const updatePlan = async (req, res) => {
+  try {
+    const { plan_id, ...updates } = req.body;
+
+    if (!plan_id) {
+      return res.status(200).json({
+        success: false,
+        message: "plan_id is required.",
+      });
+    }
+
+    const result = await updateAtlasPlan(plan_id, updates);
+
+    if (!result.success) {
+      return res.status(200).json({ success: false, message: result.message });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      plan: result.plan,
+    });
+  } catch (err) {
+    console.error("[updatePlan]", err);
+    return res.status(500).json({ success: false, message: "Server error." });
+  }
+};
+
+module.exports = { getUserPlanInfo, assignPlan, createPlan, updatePlan };

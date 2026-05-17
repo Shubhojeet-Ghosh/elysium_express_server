@@ -19,7 +19,6 @@ const atlasUserUsageSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      index: true,
     },
   },
   {
@@ -28,9 +27,6 @@ const atlasUserUsageSchema = new mongoose.Schema(
     collection: "atlas_user_available_plan_limits",
   },
 );
-
-// One usage doc per user
-atlasUserUsageSchema.index({ user_id: 1 }, { unique: true });
 
 const AtlasUserAvailablePlanLimits = mongoose.model(
   "AtlasUserAvailablePlanLimits",

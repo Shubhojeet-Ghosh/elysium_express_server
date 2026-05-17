@@ -3,7 +3,10 @@ const express = require("express");
 const router = express.Router();
 const atlasAuthController = require("../../controllers/atlasAuthController");
 const atlasPlanController = require("../../controllers/atlasPlanController");
-const { authenticateToken } = require("../../middlewares/authMiddleware");
+const {
+  authenticateToken,
+  authenticateApplicationSecret,
+} = require("../../middlewares/authMiddleware");
 
 // POST /elysium-atlas/v1/auth/magic-link
 router.post("/v1/auth/magic-link", atlasAuthController.sendMagicLinkOrLogin);
@@ -28,7 +31,21 @@ router.post(
   atlasPlanController.getUserPlanInfo,
 );
 
-// POST /elysium-atlas/v1/plan/assign  (internal — secured via application_secret_key)
-router.post("/v1/plan/assign", atlasPlanController.assignPlan);
+// Internal plan admin routes — Authorization header = APPLICATION_SECRET_KEY
+router.post(
+  "/v1/plan/assign",
+  authenticateApplicationSecret,
+  atlasPlanController.assignPlan,
+);
+router.post(
+  "/v1/plan/create",
+  authenticateApplicationSecret,
+  atlasPlanController.createPlan,
+);
+router.post(
+  "/v1/plan/update",
+  authenticateApplicationSecret,
+  atlasPlanController.updatePlan,
+);
 
 module.exports = router;
