@@ -10,6 +10,8 @@ const redisRouter = require("./redis/redis_router");
 
 const elysiumChatRouter = require("./elysium_chat/elysium_route");
 
+const atlasTeamMembersRouter = require("./team/atlas_team_members_router");
+
 const sgdevstudioRouter = require("./portfolio_routes/sgdevstudio_routes");
 
 // Prefix all auth routes with /v1/auth
@@ -17,6 +19,8 @@ router.use("/v1/auth", authRouter);
 
 // Prefix all atlas auth routes with /elysium-atlas/v1/auth
 router.use("/elysium-atlas", atlasAuthRouter);
+
+router.use("/elysium-atlas", atlasTeamMembersRouter);
 
 router.use("/v1/redis", redisRouter);
 

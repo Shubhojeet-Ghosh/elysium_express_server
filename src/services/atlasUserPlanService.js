@@ -2,22 +2,26 @@ const AtlasUserPlan = require("../models/atlas_user_plans");
 const AtlasPlan = require("../models/atlas_plans");
 const AtlasUserAvailablePlanLimits = require("../models/atlas_user_available_plan_limits");
 const { applyPlanLimitDefaults } = require("../utils/planLimitDefaults");
+const { syncTeamMaxMembers } = require("./atlasTeamService");
 
 const STARTER_PLAN_ID = "trial-001";
 
 /**
  * Copies all keys from atlas_plans.plan_limits onto the user's
  * atlas_user_available_plan_limits doc (top-level fields), including
- * max_visitor_message_chars and any future limit keys.
+ * max_visitor_message_chars, max_team_members, and any future limit keys.
  */
 const syncUserAvailableLimits = async (user_id, planLimits = {}) => {
   const uid = String(user_id);
   const limits = applyPlanLimitDefaults(planLimits);
+
   await AtlasUserAvailablePlanLimits.findOneAndUpdate(
     { user_id: uid },
     { $set: limits },
     { upsert: true, new: true },
   );
+
+  await syncTeamMaxMembers(uid, limits.max_team_members);
 };
 
 /**
@@ -143,7 +147,7 @@ const assignPlanToUser = async (user_id, plan_id) => {
     notes: `Plan assigned via internal API on ${now.toISOString()}.`,
   });
 
-  // 4. Sync every plan_limits key (incl. max_visitor_message_chars) to the user limits doc.
+  // 4. Sync plan_limits to user limits doc and atlas_teams.max_members.
   await syncUserAvailableLimits(uid, planDoc.plan_limits || {});
 
   return { success: true, plan, message: "Plan assigned successfully." };

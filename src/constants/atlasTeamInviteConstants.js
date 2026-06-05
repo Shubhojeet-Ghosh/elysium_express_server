@@ -1,0 +1,13 @@
+const INVITE_TOKEN_TYPE = "atlas_team_invite";
+const INVITE_TTL_DAYS = 7;
+const INVITE_TTL_JWT = "7d";
+const MAX_INVITE_BATCH_SIZE = 50;
+const DEFAULT_MEMBER_ROLE = "member";
+
+module.exports = {
+  INVITE_TOKEN_TYPE,
+  INVITE_TTL_DAYS,
+  INVITE_TTL_JWT,
+  MAX_INVITE_BATCH_SIZE,
+  DEFAULT_MEMBER_ROLE,
+};
