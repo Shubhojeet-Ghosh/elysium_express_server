@@ -1,7 +1,14 @@
 const AtlasUserPlan = require("../models/atlas_user_plans");
 const AtlasPlan = require("../models/atlas_plans");
 const AtlasUserAvailablePlanLimits = require("../models/atlas_user_available_plan_limits");
-const { applyPlanLimitDefaults } = require("../utils/planLimitDefaults");
+const {
+  applyPlanLimitDefaults,
+  applyAvailableLimitDefaults,
+  PLAN_CAPACITY_LIMIT_KEYS,
+  DEFAULT_MAX_TEAM_MEMBERS,
+} = require("../utils/planLimitDefaults");
+const { getTeamLimits, getOwnerTeamLimits, getOwnerMaxTeamMembers } =
+  require("./atlasTeamService");
 
 // ---------------------------------------------------------------------------
 // Granular query helpers — each fetches exactly one piece of data.
@@ -50,44 +57,87 @@ const getAvailableLimitsByUserId = async (user_id) => {
   if (!doc) return null;
 
   const limits = {};
+  const capacityKeys = new Set(PLAN_CAPACITY_LIMIT_KEYS);
   for (const [key, value] of Object.entries(doc)) {
-    if (!LIMITS_DOC_METADATA_KEYS.has(key)) {
+    if (!LIMITS_DOC_METADATA_KEYS.has(key) && !capacityKeys.has(key)) {
       limits[key] = value;
     }
   }
-  return applyPlanLimitDefaults(limits);
+  return applyAvailableLimitDefaults(limits);
 };
 
 /**
- * Aggregate full plan info for a user in one call.
- * Returns:
- *  - plan         : fields from atlas_user_plans
- *  - original_limits : plan_limits from atlas_plans
- *  - available_limits: current remaining values from atlas_user_available_plan_limits
+ * max_team_members for a team — from atlas_teams.max_members.
  */
-const getFullUserPlanInfo = async (user_id) => {
-  const uid = String(user_id);
+const getPlanMaxTeamMembersForTeam = async (team_id) => {
+  const teamLimits = await getTeamLimits(team_id);
+  return teamLimits?.max_team_members ?? DEFAULT_MAX_TEAM_MEMBERS;
+};
 
-  const userPlan = await getUserPlanByUserId(uid);
-  if (!userPlan) return null;
+/**
+ * @deprecated Use getPlanMaxTeamMembersForTeam(team_id) or getOwnerMaxTeamMembers(owner_user_id).
+ */
+const getPlanMaxTeamMembersForUser = async (user_id) =>
+  getOwnerMaxTeamMembers(user_id);
+
+/**
+ * Aggregate full plan info for the team in the session (owner's plan + team capacity).
+ */
+const getFullTeamPlanInfo = async (team_id) => {
+  const teamLimits = await getTeamLimits(team_id);
+  if (!teamLimits) {
+    return null;
+  }
+
+  const ownerUserId = teamLimits.owner_user_id;
+  const userPlan = await getUserPlanByUserId(ownerUserId);
+  if (!userPlan) {
+    return null;
+  }
 
   const [planDefinition, availableLimits] = await Promise.all([
     getPlanDefinitionByPlanId(userPlan.plan_id),
-    getAvailableLimitsByUserId(uid),
+    getAvailableLimitsByUserId(ownerUserId),
   ]);
+
+  const originalLimits = planDefinition
+    ? applyPlanLimitDefaults(planDefinition.plan_limits || {})
+    : null;
+
+  if (originalLimits) {
+    originalLimits.max_team_members = teamLimits.max_team_members;
+    originalLimits.member_count = teamLimits.member_count;
+  }
 
   return {
     plan: userPlan,
-    original_limits: planDefinition
-      ? applyPlanLimitDefaults(planDefinition.plan_limits || {})
-      : null,
+    original_limits: originalLimits,
     available_limits: availableLimits,
+    team: {
+      team_id: teamLimits.team_id,
+      max_team_members: teamLimits.max_team_members,
+      member_count: teamLimits.member_count,
+    },
   };
+};
+
+/**
+ * @deprecated Use getFullTeamPlanInfo(team_id).
+ */
+const getFullUserPlanInfo = async (user_id) => {
+  const teamLimits = await getOwnerTeamLimits(user_id);
+  if (!teamLimits?.team_id) {
+    return null;
+  }
+  return getFullTeamPlanInfo(teamLimits.team_id);
 };
 
 module.exports = {
   getUserPlanByUserId,
   getPlanDefinitionByPlanId,
   getAvailableLimitsByUserId,
+  getFullTeamPlanInfo,
   getFullUserPlanInfo,
+  getPlanMaxTeamMembersForTeam,
+  getPlanMaxTeamMembersForUser,
 };

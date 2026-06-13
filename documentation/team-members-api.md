@@ -39,9 +39,9 @@ User profile fields (`first_name`, `last_name`, `profile_image_url`) are **never
 
 ## Authentication
 
-### Owner endpoints (invite, list members)
+### Team-scoped endpoints (invite, list, remove members)
 
-Requires the standard Atlas **session token** from login (`/elysium-atlas/v1/auth/magic-link` or password login).
+Requires the standard Atlas **session token** from login. All checks use the session's **`team_id`** and the caller's **role** for that team — not whether they are the team owner.
 
 ```http
 Authorization: Bearer <sessionToken>
@@ -52,11 +52,22 @@ The session JWT payload includes:
 
 | Claim | Description |
 |-------|-------------|
-| `user_id` | Owner's MongoDB user id |
-| `email` | Owner's email |
-| `team_id` | Owner's personal team id (used for invite/list) |
+| `user_id` | Caller's MongoDB user id |
+| `email` | Caller's email |
+| `team_id` | **Active team** context (used for all team member APIs) |
+| `role` | Caller's role for `team_id`: `"owner"` \| `"admin"` \| `"member"` |
 | `first_name`, `last_name` | Profile fields |
 | `is_profile_complete` | Must be `true` for login |
+
+### Role permissions
+
+| Action | `owner` | `admin` | `member` |
+|--------|---------|---------|----------|
+| List members (`GET /team/members`) | Yes | Yes | Yes |
+| Invite members (`POST /team/members/invite`) | Yes | Yes | No → `403` |
+| Remove members (`POST /team/members/remove`) | Yes | Yes | No → `403` |
+
+The backend re-resolves role from the database on each request (via `team_id` + `user_id`), not only from the JWT claim.
 
 ### Public invitee endpoints (preview, respond)
 
@@ -116,7 +127,7 @@ Batch-invite up to **50** emails per request.
 
 ```json
 {
-  "Authorization": "Bearer <owner_sessionToken>",
+  "Authorization": "Bearer <sessionToken>",
   "Content-Type": "application/json"
 }
 ```
@@ -137,7 +148,7 @@ Batch-invite up to **50** emails per request.
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
 | `emails` | Yes | `string[]` | 1–50 unique emails (duplicates in the same request are reported as `duplicate_in_request`) |
-| `role` | No | `string` | Default `"member"`. Only `"member"` is supported in v1 |
+| `role` | No | `string` | Default `"member"`. `"admin"` or `"member"` |
 
 #### Success response — `200`
 
@@ -184,8 +195,10 @@ Batch-invite up to **50** emails per request.
 | `401` | `{ "success": false, "message": "Invalid or expired token." }` |
 | `400` | `{ "success": false, "message": "At least one email is required." }` |
 | `400` | `{ "success": false, "message": "You can invite up to 50 emails per request." }` |
+| `400` | `{ "success": false, "message": "Invalid role. Must be \"admin\" or \"member\"." }` |
 | `400` | `{ "success": false, "message": "Team ID is missing from session." }` |
-| `403` | `{ "success": false, "message": "You are not authorized to invite members to this team." }` |
+| `403` | `{ "success": false, "message": "You do not have permission to invite members to this team." }` |
+| `403` | `{ "success": false, "message": "You are not a member of this team." }` |
 
 ---
 
@@ -407,12 +420,22 @@ Paginated list of accepted team members. Owner-only. Profile names are joined fr
 {
   "success": true,
   "team_id": "665a1b2c3d4e5f6789012345",
-  "member_count": 5,
-  "max_members": 10,
+  "current_team_size": 5,
+  "max_team_members": 55,
   "page": 1,
   "limit": 50,
-  "total": 4,
+  "total": 5,
   "members": [
+    {
+      "user_id": "665a1b2c3d4e5f6789012300",
+      "email": "owner@example.com",
+      "first_name": "Jane",
+      "last_name": "Doe",
+      "profile_image_url": null,
+      "role": "owner",
+      "status": "active",
+      "joined_at": "2026-02-25T06:51:29.737Z"
+    },
     {
       "user_id": "665a1b2c3d4e5f6789012347",
       "email": "alice@example.com",
@@ -427,16 +450,67 @@ Paginated list of accepted team members. Owner-only. Profile names are joined fr
 }
 ```
 
-> **Note:** `member_count` on the team includes the owner (starts at 1). `total` in the list is the count of documents in `atlas_team_members` (invited members only, not the owner).
+> **Note:** `current_team_size` and `max_team_members` come from `atlas_teams` (`member_count` / `max_members`), refreshed before each response. When `status=active`, `members[]` includes the **owner** first (`role: "owner"`), then invited members. `total` = owner + matching `atlas_team_members` rows.
 
 #### Error — `403`
 
 ```json
 {
   "success": false,
-  "message": "You are not authorized to view members of this team."
+  "message": "You do not have permission to view members of this team."
 }
 ```
+
+---
+
+### 5. Remove team member
+
+**`POST /elysium-atlas/v1/team/members/remove`**
+
+Owner-only. Soft-removes an active member (`status: "removed"`). No counter updates.
+
+#### Headers
+
+```json
+{
+  "Authorization": "Bearer <sessionToken>",
+  "Content-Type": "application/json"
+}
+```
+
+#### Request body
+
+```json
+{
+  "user_id": "665a1b2c3d4e5f6789012347"
+}
+```
+
+#### Success response — `200`
+
+```json
+{
+  "success": true,
+  "message": "Team member removed.",
+  "member": {
+    "user_id": "665a1b2c3d4e5f6789012347",
+    "email": "alice@example.com",
+    "role": "member",
+    "status": "removed"
+  }
+}
+```
+
+#### Error responses
+
+| HTTP | Body |
+|------|------|
+| `400` | `{ "success": false, "message": "user_id is required." }` |
+| `400` | `{ "success": false, "message": "The team owner cannot be removed." }` |
+| `401` | Missing or invalid session token |
+| `403` | `{ "success": false, "message": "You do not have permission to remove members from this team." }` |
+| `404` | `{ "success": false, "message": "This user is not a member of your team." }` |
+| `200` | `{ "success": false, "message": "This member has already been removed.", "member": { ... } }` |
 
 ---
 
@@ -449,8 +523,32 @@ Team metadata. One personal team per owner.
 | Field | Purpose |
 |-------|---------|
 | `owner_user_id` | Team owner |
-| `member_count` | Denormalized count (owner + active invited members) |
-| `max_members` | Capacity from plan (`plan_limits.max_team_members`) |
+| `member_count` | Owner (1) + active members — **source of truth**, recomputed on team operations |
+| `max_members` | Max team size — **source of truth** (set directly on `atlas_teams`; not overwritten by plan sync) |
+
+Team capacity in `/plan/info` and invite/list APIs reads from **`atlas_teams`**, not from this collection.
+
+### `atlas_user_available_plan_limits`
+
+Per-user **consumable** limits remaining for the active plan period (e.g. `ai_queries`, `max_visitor_message_chars`).
+
+```json
+{
+  "_id": "ObjectId",
+  "user_id": "665a1b2c3d4e5f6789012300",
+  "ai_queries": 4655,
+  "max_visitor_message_chars": 4000,
+  "createdAt": "2026-06-05T10:00:00.000Z",
+  "updatedAt": "2026-06-13T22:48:53.037Z"
+}
+```
+
+| Rule | Detail |
+|------|--------|
+| **Stored here** | Consumable limits only |
+| **Not stored here** | `max_team_members` — use `atlas_teams.max_members` |
+| **Legacy docs** | Old documents may still have `max_team_members`; removed on next plan sync (`$unset`) and never returned in `/plan/info` → `available_limits` |
+| **Written by** | `syncUserAvailableLimits` (trial provisioning, `/plan/assign`) — strips capacity keys before `$set` |
 
 ### `atlas_team_invitations` (new)
 
@@ -473,6 +571,8 @@ One document per invitation. Supports thousands of invites via indexed queries.
 ```
 
 **`status` values:** `pending` | `accepted` | `declined` | `expired` | `revoked`
+
+**`role` values:** `admin` | `member`
 
 **Indexes:**
 - `{ team_id, invitee_email, status }`
@@ -500,6 +600,8 @@ One document per accepted member. Does **not** store `first_name` / `last_name`.
 ```
 
 **`status` values:** `active` | `removed`
+
+**`role` values:** `admin` | `member`
 
 **Indexes:**
 - `{ team_id, user_id }` — **unique**
@@ -560,7 +662,7 @@ Returned in `results[]` from the invite API:
 | `not_registered` | No user in `elysium_atlas_users` | No |
 | `profile_incomplete` | User exists but `is_profile_complete !== true` | No |
 | `already_member` | Already in `atlas_team_members` (active) | No |
-| `self_invite` | Owner tried to invite their own email | No |
+| `self_invite` | Inviter tried to invite their own email | No |
 | `invalid_email` | Failed email format validation | No |
 | `duplicate_in_request` | Same email appeared twice in one batch | No |
 | `team_full` | Would exceed `max_members` (including pending invites) | No |
@@ -569,11 +671,26 @@ Returned in `results[]` from the invite API:
 
 ---
 
+## Authorization implementation (backend)
+
+Team member APIs no longer check `owner_user_id === user_id`. Instead:
+
+1. Read `team_id` and `user_id` from the session JWT
+2. `checkTeamPermission(userId, teamId, action)` in `atlasTeamPermissionService.js`:
+   - Loads the active team by `team_id`
+   - Resolves role via `getUserRoleForTeam(userId, teamId)` (owner if they own the team, else membership role from `atlas_team_members`)
+   - Looks up allowed actions in `ROLE_PERMISSIONS` (`atlasTeamPermissionConstants.js`)
+3. Returns `403` if the user is not a member or lacks permission for the action
+
+To add a new team-scoped action: add it to `TEAM_ACTIONS`, assign it to roles in `ROLE_PERMISSIONS`, then call `checkTeamPermission` from the service.
+
+---
+
 ## Error handling
 
 - Most business failures return HTTP **200** with `"success": false` (consistent with existing Atlas auth routes).
 - Auth middleware failures return **401**.
-- Authorization failures (not team owner) return **403**.
+- Authorization failures (insufficient role for team) return **403**.
 - Validation failures return **400**.
 - Unexpected server errors return **500** with `{ "success": false, "message": "Server error." }`.
 
@@ -581,17 +698,18 @@ Returned in `results[]` from the invite API:
 
 ## Plan limits & capacity
 
-Capacity formula when inviting:
+Capacity is read from the owner's **`atlas_teams`** document (`max_members`, `member_count`).
 
 ```
-remaining_slots = max_members - member_count - pending_invitations_count
+remaining invite slots = max_members - member_count - pending_invites
 ```
 
-- `member_count` includes the owner (minimum 1).
+- `member_count` includes the owner (minimum 1); recomputed from `atlas_team_members` before reads.
+- `max_members` is **not** updated by plan assign or `syncUserAvailableLimits`. Set it directly on `atlas_teams` (or via a future admin API). Plan assign only syncs consumable limits to `atlas_user_available_plan_limits`.
 - Each **new** pending invitation consumes one slot until it expires, is declined, or is accepted.
 - Re-inviting an email with an existing pending invite (`already_invited`) does **not** consume an additional slot.
 
-`max_members` is synced from the owner's plan via `atlas_user_available_plan_limits.max_team_members`.
+`/plan/info` returns `max_team_members` and `member_count` in **`original_limits`** and **`plan_data.team`** — not in `available_limits`.
 
 ---
 
@@ -644,6 +762,15 @@ curl -X POST http://localhost:3000/elysium-atlas/v1/team/members/invitation/resp
 ```bash
 curl -X GET "http://localhost:3000/elysium-atlas/v1/team/members?page=1&limit=50" \
   -H "Authorization: Bearer YOUR_SESSION_TOKEN"
+```
+
+**Remove member:**
+
+```bash
+curl -X POST http://localhost:3000/elysium-atlas/v1/team/members/remove \
+  -H "Authorization: Bearer YOUR_SESSION_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"user_id\":\"MEMBER_USER_ID\"}"
 ```
 
 ---

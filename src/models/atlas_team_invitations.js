@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { INVITABLE_ROLES } = require("../constants/atlasTeamRoleConstants");
 
 const INVITATION_STATUSES = [
   "pending",
@@ -34,7 +35,7 @@ const atlasTeamInvitationSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["member"],
+      enum: INVITABLE_ROLES,
       default: "member",
     },
     status: {

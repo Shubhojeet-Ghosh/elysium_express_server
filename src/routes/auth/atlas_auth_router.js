@@ -13,6 +13,14 @@ router.post("/v1/auth/magic-link", atlasAuthController.sendMagicLinkOrLogin);
 
 router.post("/v1/auth/verify", atlasAuthController.verifyMagicLink);
 
+router.post("/v1/auth/select-team", atlasAuthController.selectTeam);
+
+router.post(
+  "/v1/auth/decode-token",
+  authenticateApplicationSecret,
+  atlasAuthController.decodeToken,
+);
+
 router.post(
   "/v1/auth/profile/update",
   authenticateToken,

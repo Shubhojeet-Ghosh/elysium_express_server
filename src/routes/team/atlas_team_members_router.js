@@ -26,4 +26,10 @@ router.get(
   atlasTeamMembersController.listMembers,
 );
 
+router.post(
+  "/v1/team/members/remove",
+  authenticateToken,
+  atlasTeamMembersController.removeMember,
+);
+
 module.exports = router;

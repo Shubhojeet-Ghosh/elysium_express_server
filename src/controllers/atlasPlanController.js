@@ -1,5 +1,5 @@
 const {
-  getFullUserPlanInfo,
+  getFullTeamPlanInfo,
 } = require("../services/atlasUserPlanQueryService");
 const {
   ensureTrialPlan,
@@ -10,44 +10,66 @@ const {
   updateAtlasPlan,
 } = require("../services/atlasPlanCatalogService");
 const { getUserIdByEmail } = require("../services/atlasUserService");
+const { getTeamLimits, getUserRoleForTeam } = require("../services/atlasTeamService");
 
 /**
  * POST /elysium-atlas/v1/plan/info
  *
- * Returns the active plan details, original plan limits, and available
- * (remaining) limits for the requesting user.
+ * Returns plan details for the **active team** in the session JWT (`team_id`).
+ * Plan and consumable limits come from the **team owner's** subscription;
+ * team capacity (max_team_members, member_count) comes from that team doc.
  *
- * If no plan or limits doc exists yet (e.g. legacy accounts), a 7-day trial
- * is provisioned on-the-fly before the response is returned.
- *
- * The user_id is read from the verified JWT payload (req.user.user_id)
- * injected by the authenticateToken middleware — no body/query param needed.
+ * Any team member (owner, admin, member) may call this for their session team.
  */
 const getUserPlanInfo = async (req, res) => {
   try {
-    const user_id = req.user.user_id;
+    const userId = req.user.user_id;
+    const teamId = req.user.team_id;
 
-    let planInfo = await getFullUserPlanInfo(user_id);
+    if (!teamId) {
+      return res.status(400).json({
+        success: false,
+        message: "Team ID is missing from session.",
+      });
+    }
 
-    // No plan or limits doc — provision a trial now, then re-fetch.
+    const role = await getUserRoleForTeam(userId, teamId);
+    if (!role) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not a member of this team.",
+      });
+    }
+
+    let planInfo = await getFullTeamPlanInfo(teamId);
+
     if (!planInfo || !planInfo.available_limits) {
-      await ensureTrialPlan(
-        user_id,
-        "Auto-provisioned trial via plan/info endpoint.",
-      );
-      planInfo = await getFullUserPlanInfo(user_id);
+      const teamLimits = await getTeamLimits(teamId);
+      if (teamLimits?.owner_user_id) {
+        await ensureTrialPlan(
+          teamLimits.owner_user_id,
+          "Auto-provisioned trial via plan/info endpoint (team owner).",
+        );
+      }
+      planInfo = await getFullTeamPlanInfo(teamId);
     }
 
     if (!planInfo) {
       return res.status(200).json({
         success: false,
-        message: "Unable to provision a plan for this user.",
+        message: "Unable to load plan info for this team.",
       });
     }
 
     return res.status(200).json({
       success: true,
-      plan_data: planInfo,
+      plan_data: {
+        ...planInfo,
+        team: {
+          ...planInfo.team,
+          caller_role: role,
+        },
+      },
     });
   } catch (err) {
     console.error("[getUserPlanInfo]", err);

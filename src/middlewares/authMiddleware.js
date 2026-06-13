@@ -21,8 +21,8 @@ function authenticateToken(req, res, next) {
 }
 
 /**
- * Internal atlas admin routes — expects APPLICATION_SECRET_KEY in the
- * Authorization header (not the body). Supports raw value or Bearer <secret>.
+ * Internal atlas admin routes — Authorization header must be the raw
+ * APPLICATION_SECRET_KEY value (no "Bearer " prefix).
  */
 function authenticateApplicationSecret(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -34,9 +34,14 @@ function authenticateApplicationSecret(req, res, next) {
     });
   }
 
-  const secret = authHeader.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : authHeader.trim();
+  const secret = authHeader.trim();
+
+  if (secret.startsWith("Bearer ")) {
+    return res.status(200).json({
+      success: false,
+      message: "Use the raw APPLICATION_SECRET_KEY in Authorization (no Bearer prefix).",
+    });
+  }
 
   if (secret !== process.env.APPLICATION_SECRET_KEY) {
     return res.status(200).json({

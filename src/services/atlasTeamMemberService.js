@@ -8,12 +8,22 @@ const { sendHtmlEmail } = require("./emailSenderService");
 const { validateEmail } = require("./validateEmail");
 const { generateTeamInviteEmail } = require("./atlasTeamInviteEmailTemplateService");
 const {
+  refreshTeamMemberCount,
+  getOwnerMaxTeamMembers,
+} = require("./atlasTeamService");
+const {
+  checkTeamPermission,
+  TEAM_ACTIONS,
+} = require("./atlasTeamPermissionService");
+const {
   INVITE_TOKEN_TYPE,
   INVITE_TTL_DAYS,
   INVITE_TTL_JWT,
   MAX_INVITE_BATCH_SIZE,
   DEFAULT_MEMBER_ROLE,
+  INVITABLE_ROLES,
 } = require("../constants/atlasTeamInviteConstants");
+const { TEAM_OWNER_ROLE } = require("../constants/atlasTeamRoleConstants");
 
 const ATLAS_FRONTEND_BASE_URL =
   process.env.ATLAS_FRONTEND_BASE_URL || "localhost:3000";
@@ -97,16 +107,11 @@ const isInvitationExpired = (invitation) =>
   invitation.status === "expired" ||
   (invitation.expires_at && invitation.expires_at.getTime() < Date.now());
 
-const loadOwnerTeam = async (ownerUserId, teamId) => {
-  const team = await AtlasTeam.findOne({
-    _id: teamId,
-    owner_user_id: String(ownerUserId),
-    is_active: true,
+const countActiveTeamMembers = async (teamId) =>
+  AtlasTeamMember.countDocuments({
+    team_id: String(teamId),
     status: "active",
-  }).lean();
-
-  return team;
-};
+  });
 
 const countPendingInvitations = async (teamId) =>
   AtlasTeamInvitation.countDocuments({
@@ -115,9 +120,32 @@ const countPendingInvitations = async (teamId) =>
     expires_at: { $gt: new Date() },
   });
 
-const getRemainingTeamSlots = async (team) => {
-  const pendingInvites = await countPendingInvitations(team._id);
-  return Math.max(0, team.max_members - team.member_count - pendingInvites);
+/**
+ * Capacity from atlas_teams (source of truth). Refreshes member_count before read.
+ */
+const getTeamCapacitySnapshot = async (ownerUserId, teamId) => {
+  const [team, pendingInvites] = await Promise.all([
+    refreshTeamMemberCount(teamId),
+    countPendingInvitations(teamId),
+  ]);
+
+  const maxTeamMembers =
+    team?.max_members ?? (await getOwnerMaxTeamMembers(ownerUserId));
+  const memberCount = team?.member_count ?? 1;
+  const activeMembers = Math.max(0, memberCount - 1);
+  const remainingSlots = Math.max(
+    0,
+    maxTeamMembers - memberCount - pendingInvites,
+  );
+
+  return {
+    maxTeamMembers,
+    memberCount,
+    activeMembers,
+    pendingInvites,
+    currentTeamSize: memberCount,
+    remainingSlots,
+  };
 };
 
 const createOrRefreshInvitation = async ({
@@ -166,11 +194,11 @@ const createOrRefreshInvitation = async ({
 };
 
 /**
- * Batch-invite emails to a team owned by the authenticated user.
+ * Batch-invite emails to a team. Requires owner or admin role for teamId.
  */
 const inviteTeamMembers = async ({
-  ownerUserId,
-  ownerEmail,
+  userId,
+  userEmail,
   teamId,
   emails,
   role = DEFAULT_MEMBER_ROLE,
@@ -197,32 +225,39 @@ const inviteTeamMembers = async ({
     };
   }
 
-  const resolvedTeamId = teamId || null;
-  if (!resolvedTeamId) {
+  if (role && !INVITABLE_ROLES.includes(role)) {
     return {
       ok: false,
       statusCode: 400,
       body: {
         success: false,
-        message: "Team ID is missing from session.",
+        message: 'Invalid role. Must be "admin" or "member".',
       },
     };
   }
 
-  const team = await loadOwnerTeam(ownerUserId, resolvedTeamId);
-  if (!team) {
+  const resolvedTeamId = teamId || null;
+  const permission = await checkTeamPermission(
+    userId,
+    resolvedTeamId,
+    TEAM_ACTIONS.INVITE_MEMBERS,
+  );
+
+  if (!permission.allowed) {
     return {
       ok: false,
-      statusCode: 403,
+      statusCode: permission.statusCode,
       body: {
         success: false,
-        message: "You are not authorized to invite members to this team.",
+        message: permission.message,
       },
     };
   }
 
-  const ownerEmailNorm = normalizeEmail(ownerEmail);
-  const inviterUser = await ElysiumAtlasUser.findById(ownerUserId).lean();
+  const team = permission.team;
+  const ownerUserId = permission.ownerUserId;
+  const actorEmailNorm = normalizeEmail(userEmail);
+  const inviterUser = await ElysiumAtlasUser.findById(userId).lean();
 
   const seenEmails = new Set();
   const normalizedInput = [];
@@ -267,7 +302,7 @@ const inviteTeamMembers = async ({
     pendingInvitations.map((invite) => [invite.invitee_email, invite]),
   );
 
-  let remainingSlots = await getRemainingTeamSlots(team);
+  let { remainingSlots } = await getTeamCapacitySnapshot(ownerUserId, team._id);
   const results = [];
 
   for (const entry of normalizedInput) {
@@ -288,7 +323,7 @@ const inviteTeamMembers = async ({
       continue;
     }
 
-    if (entry.email === ownerEmailNorm) {
+    if (entry.email === actorEmailNorm) {
       results.push({ email: entry.email, status: "self_invite" });
       continue;
     }
@@ -328,7 +363,7 @@ const inviteTeamMembers = async ({
     try {
       const inviteResult = await createOrRefreshInvitation({
         team,
-        inviterUserId: ownerUserId,
+        inviterUserId: userId,
         inviteeUser: user,
         role,
         existingInvitation: existingPending || null,
@@ -587,6 +622,12 @@ const respondToInvitation = async ({ token, accept }) => {
     };
   }
 
+  const removedMember = await AtlasTeamMember.findOne({
+    team_id: invitation.team_id,
+    user_id: invitation.invitee_user_id,
+    status: "removed",
+  }).lean();
+
   const lockedInvitation = await AtlasTeamInvitation.findOneAndUpdate(
     {
       _id: invitation._id,
@@ -612,18 +653,11 @@ const respondToInvitation = async ({ token, accept }) => {
     };
   }
 
-  const updatedTeam = await AtlasTeam.findOneAndUpdate(
-    {
-      _id: invitation.team_id,
-      is_active: true,
-      status: "active",
-      $expr: { $lt: ["$member_count", "$max_members"] },
-    },
-    { $inc: { member_count: 1 } },
-    { new: true },
-  );
+  const maxTeamMembers = await getOwnerMaxTeamMembers(team.owner_user_id);
+  const refreshedTeam = await refreshTeamMemberCount(invitation.team_id);
+  const memberCount = refreshedTeam?.member_count ?? 1;
 
-  if (!updatedTeam) {
+  if (memberCount >= maxTeamMembers) {
     lockedInvitation.status = "pending";
     lockedInvitation.responded_at = null;
     await lockedInvitation.save();
@@ -638,16 +672,54 @@ const respondToInvitation = async ({ token, accept }) => {
   }
 
   try {
-    const member = await AtlasTeamMember.create({
-      team_id: invitation.team_id,
-      user_id: invitation.invitee_user_id,
-      email: invitation.invitee_email,
-      role: invitation.role,
-      status: "active",
-      invited_by_user_id: invitation.inviter_user_id,
-      invitation_id: String(invitation._id),
-      joined_at: now,
-    });
+    let member;
+
+    if (removedMember) {
+      member = await AtlasTeamMember.findOneAndUpdate(
+        {
+          _id: removedMember._id,
+          status: "removed",
+        },
+        {
+          $set: {
+            status: "active",
+            email: invitation.invitee_email,
+            role: invitation.role,
+            invited_by_user_id: invitation.inviter_user_id,
+            invitation_id: String(invitation._id),
+            joined_at: now,
+          },
+        },
+        { new: true },
+      );
+
+      if (!member) {
+        lockedInvitation.status = "pending";
+        lockedInvitation.responded_at = null;
+        await lockedInvitation.save();
+
+        return {
+          ok: false,
+          body: {
+            success: false,
+            message: "Unable to process invitation.",
+          },
+        };
+      }
+    } else {
+      member = await AtlasTeamMember.create({
+        team_id: invitation.team_id,
+        user_id: invitation.invitee_user_id,
+        email: invitation.invitee_email,
+        role: invitation.role,
+        status: "active",
+        invited_by_user_id: invitation.inviter_user_id,
+        invitation_id: String(invitation._id),
+        joined_at: now,
+      });
+    }
+
+    await refreshTeamMemberCount(invitation.team_id);
 
     return {
       ok: true,
@@ -663,24 +735,64 @@ const respondToInvitation = async ({ token, accept }) => {
       },
     };
   } catch (err) {
-    await AtlasTeam.findByIdAndUpdate(invitation.team_id, {
-      $inc: { member_count: -1 },
-    });
-
     if (err?.code === 11000) {
-      return {
-        ok: true,
-        body: {
-          success: true,
-          message: "You are already a member of this team.",
-          membership: {
-            team_id: invitation.team_id,
-            team_name: team.team_name,
+      const reactivated = await AtlasTeamMember.findOneAndUpdate(
+        {
+          team_id: invitation.team_id,
+          user_id: invitation.invitee_user_id,
+          status: "removed",
+        },
+        {
+          $set: {
+            status: "active",
+            email: invitation.invitee_email,
             role: invitation.role,
+            invited_by_user_id: invitation.inviter_user_id,
+            invitation_id: String(invitation._id),
             joined_at: now,
           },
         },
-      };
+        { new: true },
+      );
+
+      if (reactivated) {
+        await refreshTeamMemberCount(invitation.team_id);
+        return {
+          ok: true,
+          body: {
+            success: true,
+            message: "You have joined the team.",
+            membership: {
+              team_id: invitation.team_id,
+              team_name: team.team_name,
+              role: reactivated.role,
+              joined_at: reactivated.joined_at,
+            },
+          },
+        };
+      }
+
+      const activeMember = await AtlasTeamMember.findOne({
+        team_id: invitation.team_id,
+        user_id: invitation.invitee_user_id,
+        status: "active",
+      }).lean();
+
+      if (activeMember) {
+        return {
+          ok: true,
+          body: {
+            success: true,
+            message: "You are already a member of this team.",
+            membership: {
+              team_id: invitation.team_id,
+              team_name: team.team_name,
+              role: activeMember.role,
+              joined_at: activeMember.joined_at,
+            },
+          },
+        };
+      }
     }
 
     lockedInvitation.status = "pending";
@@ -698,24 +810,54 @@ const respondToInvitation = async ({ token, accept }) => {
   }
 };
 
+const formatListMemberRow = (user, member) => ({
+  user_id: String(member.user_id),
+  email: member.email,
+  first_name: user?.first_name || "",
+  last_name: user?.last_name || "",
+  profile_image_url: user?.profile_image_url || null,
+  role: member.role,
+  status: member.status,
+  joined_at: member.joined_at,
+});
+
+const buildOwnerListRow = (team, ownerUser) => ({
+  user_id: String(team.owner_user_id),
+  email: ownerUser?.email || team.owner_email || "",
+  first_name: ownerUser?.first_name || "",
+  last_name: ownerUser?.last_name || "",
+  profile_image_url: ownerUser?.profile_image_url || null,
+  role: TEAM_OWNER_ROLE,
+  status: "active",
+  joined_at: team.createdAt || null,
+});
+
 const listTeamMembers = async ({
-  ownerUserId,
+  userId,
   teamId,
   page = 1,
   limit = 50,
   status = "active",
 }) => {
-  const team = await loadOwnerTeam(ownerUserId, teamId);
-  if (!team) {
+  const permission = await checkTeamPermission(
+    userId,
+    teamId,
+    TEAM_ACTIONS.LIST_MEMBERS,
+  );
+
+  if (!permission.allowed) {
     return {
       ok: false,
-      statusCode: 403,
+      statusCode: permission.statusCode,
       body: {
         success: false,
-        message: "You are not authorized to view members of this team.",
+        message: permission.message,
       },
     };
   }
+
+  const team = permission.team;
+  const includeOwner = status === "active";
 
   const safePage = Math.max(1, Number(page) || 1);
   const safeLimit = Math.min(100, Math.max(1, Number(limit) || 50));
@@ -726,20 +868,51 @@ const listTeamMembers = async ({
     status,
   };
 
-  const [total, members] = await Promise.all([
+  const [invitedMemberTotal, capacity] = await Promise.all([
     AtlasTeamMember.countDocuments(filter),
-    AtlasTeamMember.find(filter)
-      .sort({ joined_at: -1 })
-      .skip(skip)
-      .limit(safeLimit)
-      .lean(),
+    getTeamCapacitySnapshot(permission.ownerUserId, team._id),
   ]);
 
-  const userIds = members.map((member) => member.user_id);
+  const total = includeOwner ? invitedMemberTotal + 1 : invitedMemberTotal;
+
+  let memberSkip = skip;
+  let memberLimit = safeLimit;
+  let includeOwnerOnPage = false;
+
+  if (includeOwner) {
+    if (skip === 0) {
+      includeOwnerOnPage = true;
+      memberSkip = 0;
+      memberLimit = Math.max(0, safeLimit - 1);
+    } else {
+      memberSkip = skip - 1;
+      memberLimit = safeLimit;
+    }
+  }
+
+  const members = await AtlasTeamMember.find(filter)
+    .sort({ joined_at: -1 })
+    .skip(memberSkip)
+    .limit(memberLimit)
+    .lean();
+
+  const userIds = [
+    ...(includeOwnerOnPage ? [String(team.owner_user_id)] : []),
+    ...members.map((member) => member.user_id),
+  ];
+
   const users = userIds.length
     ? await ElysiumAtlasUser.find({ _id: { $in: userIds } }).lean()
     : [];
   const usersById = new Map(users.map((user) => [String(user._id), user]));
+
+  const memberRows = members.map((member) =>
+    formatListMemberRow(usersById.get(member.user_id), member),
+  );
+
+  const listMembers = includeOwnerOnPage
+    ? [buildOwnerListRow(team, usersById.get(String(team.owner_user_id))), ...memberRows]
+    : memberRows;
 
   return {
     ok: true,
@@ -747,24 +920,115 @@ const listTeamMembers = async ({
     body: {
       success: true,
       team_id: String(team._id),
-      member_count: team.member_count,
-      max_members: team.max_members,
+      current_team_size: capacity.memberCount,
+      max_team_members: capacity.maxTeamMembers,
       page: safePage,
       limit: safeLimit,
       total,
-      members: members.map((member) => {
-        const user = usersById.get(member.user_id);
-        return {
-          user_id: member.user_id,
-          email: member.email,
-          first_name: user?.first_name || "",
-          last_name: user?.last_name || "",
-          profile_image_url: user?.profile_image_url || null,
-          role: member.role,
-          status: member.status,
-          joined_at: member.joined_at,
-        };
-      }),
+      members: listMembers,
+    },
+  };
+};
+
+const removeTeamMember = async ({ userId, teamId, memberUserId }) => {
+  if (!memberUserId) {
+    return {
+      ok: false,
+      statusCode: 400,
+      body: {
+        success: false,
+        message: "user_id is required.",
+      },
+    };
+  }
+
+  const permission = await checkTeamPermission(
+    userId,
+    teamId,
+    TEAM_ACTIONS.REMOVE_MEMBERS,
+  );
+
+  if (!permission.allowed) {
+    return {
+      ok: false,
+      statusCode: permission.statusCode,
+      body: {
+        success: false,
+        message: permission.message,
+      },
+    };
+  }
+
+  const team = permission.team;
+  const memberIdStr = String(memberUserId);
+
+  if (memberIdStr === String(permission.ownerUserId)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      body: {
+        success: false,
+        message: "The team owner cannot be removed.",
+      },
+    };
+  }
+
+  const member = await AtlasTeamMember.findOneAndUpdate(
+    {
+      team_id: String(team._id),
+      user_id: memberIdStr,
+      status: "active",
+    },
+    { $set: { status: "removed" } },
+    { new: true },
+  ).lean();
+
+  if (!member) {
+    const existing = await AtlasTeamMember.findOne({
+      team_id: String(team._id),
+      user_id: memberIdStr,
+    }).lean();
+
+    if (!existing) {
+      return {
+        ok: false,
+        statusCode: 404,
+        body: {
+          success: false,
+          message: "This user is not a member of your team.",
+        },
+      };
+    }
+
+    return {
+      ok: false,
+      statusCode: 200,
+      body: {
+        success: false,
+        message: "This member has already been removed.",
+        member: {
+          user_id: existing.user_id,
+          email: existing.email,
+          status: existing.status,
+        },
+      },
+    };
+  }
+
+  await refreshTeamMemberCount(team._id);
+
+  return {
+    ok: true,
+    statusCode: 200,
+    body: {
+      success: true,
+      message: "Team member removed.",
+      member: {
+        user_id: member.user_id,
+        email: member.email,
+        role: member.role,
+        status: member.status,
+      },
     },
   };
 };
@@ -774,4 +1038,5 @@ module.exports = {
   getInvitationPreview,
   respondToInvitation,
   listTeamMembers,
+  removeTeamMember,
 };

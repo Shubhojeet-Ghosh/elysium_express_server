@@ -29,4 +29,61 @@ function verifyJwtToken(token) {
   }
 }
 
-module.exports = { generateJwtToken, verifyJwtToken };
+/**
+ * Inspect a JWT for internal debugging — verifies signature and reports expiry.
+ * Returns decoded payload even when expired (for testing).
+ */
+function inspectJwtToken(token) {
+  if (!token || typeof token !== "string") {
+    return {
+      valid: false,
+      error: "missing_token",
+      message: "Token is required.",
+      payload: null,
+    };
+  }
+
+  const trimmed = token.trim();
+  const decoded = jwt.decode(trimmed, { complete: true });
+
+  if (!decoded || typeof decoded.payload !== "object") {
+    return {
+      valid: false,
+      error: "malformed_token",
+      message: "Token is malformed.",
+      payload: null,
+    };
+  }
+
+  const { payload, header } = decoded;
+  const meta = {
+    header,
+    issued_at: payload.iat
+      ? new Date(payload.iat * 1000).toISOString()
+      : null,
+    expires_at: payload.exp
+      ? new Date(payload.exp * 1000).toISOString()
+      : null,
+  };
+
+  try {
+    const verified = jwt.verify(trimmed, JWT_SECRET);
+    return {
+      valid: true,
+      expired: false,
+      payload: verified,
+      ...meta,
+    };
+  } catch (err) {
+    return {
+      valid: false,
+      expired: err.name === "TokenExpiredError",
+      error: err.name,
+      message: err.message,
+      payload,
+      ...meta,
+    };
+  }
+}
+
+module.exports = { generateJwtToken, verifyJwtToken, inspectJwtToken };

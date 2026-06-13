@@ -1,7 +1,9 @@
 const mongoose = require("mongoose");
 
+const { INVITABLE_ROLES } = require("../constants/atlasTeamRoleConstants");
+
 const MEMBER_STATUSES = ["active", "removed"];
-const MEMBER_ROLES = ["member"];
+const MEMBER_ROLES = INVITABLE_ROLES;
 
 const atlasTeamMemberSchema = new mongoose.Schema(
   {

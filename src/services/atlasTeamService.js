@@ -1,35 +1,79 @@
 const AtlasTeam = require("../models/atlas_teams");
-const AtlasUserAvailablePlanLimits = require("../models/atlas_user_available_plan_limits");
-const {
-  DEFAULT_MAX_TEAM_MEMBERS,
-  resolveMaxTeamMembers,
-} = require("../utils/planLimitDefaults");
+const AtlasTeamMember = require("../models/atlas_team_members");
+const { DEFAULT_MAX_TEAM_MEMBERS } = require("../utils/planLimitDefaults");
+const { TEAM_OWNER_ROLE } = require("../constants/atlasTeamRoleConstants");
+
+const countActiveTeamMembers = async (teamId) =>
+  AtlasTeamMember.countDocuments({
+    team_id: String(teamId),
+    status: "active",
+  });
 
 /**
- * Sets max_members on the user's owned team from plan_limits.max_team_members.
+ * Recomputes member_count on atlas_teams: 1 (owner) + active accepted members.
  */
-const syncTeamMaxMembers = async (user_id, maxTeamMembers) => {
-  const maxMembers = maxTeamMembers ?? DEFAULT_MAX_TEAM_MEMBERS;
+const refreshTeamMemberCount = async (teamId) => {
+  const activeMembers = await countActiveTeamMembers(teamId);
+  const member_count = 1 + activeMembers;
 
-  await AtlasTeam.findOneAndUpdate(
-    { owner_user_id: String(user_id) },
-    { $set: { max_members: maxMembers } },
-  );
+  return AtlasTeam.findByIdAndUpdate(
+    teamId,
+    { $set: { member_count } },
+    { new: true },
+  ).lean();
+};
+
+const getOwnerTeamByUserId = async (user_id) =>
+  AtlasTeam.findOne({
+    owner_user_id: String(user_id),
+    is_active: true,
+    status: "active",
+  }).lean();
+
+/**
+ * Team capacity from atlas_teams — refreshes member_count before returning.
+ */
+const getOwnerTeamLimits = async (user_id) => {
+  const team = await getOwnerTeamByUserId(user_id);
+  if (!team) return null;
+
+  return getTeamLimits(team._id);
 };
 
 /**
- * Reads max_team_members from the user's available limits doc (with defaults).
+ * Team capacity for a specific team_id (session active team).
  */
-const syncTeamMaxMembersFromUserLimits = async (user_id) => {
-  const limitsDoc = await AtlasUserAvailablePlanLimits.findOne({
-    user_id: String(user_id),
+const getTeamLimits = async (teamId) => {
+  if (!teamId) {
+    return null;
+  }
+
+  const team = await AtlasTeam.findOne({
+    _id: teamId,
+    is_active: true,
+    status: "active",
   }).lean();
 
-  const maxMembers = limitsDoc
-    ? resolveMaxTeamMembers(limitsDoc)
-    : DEFAULT_MAX_TEAM_MEMBERS;
+  if (!team) {
+    return null;
+  }
 
-  await syncTeamMaxMembers(user_id, maxMembers);
+  const refreshed = await refreshTeamMemberCount(teamId);
+  if (!refreshed) {
+    return null;
+  }
+
+  return {
+    team_id: String(refreshed._id),
+    owner_user_id: String(refreshed.owner_user_id),
+    max_team_members: refreshed.max_members,
+    member_count: refreshed.member_count,
+  };
+};
+
+const getOwnerMaxTeamMembers = async (user_id) => {
+  const team = await getOwnerTeamByUserId(user_id);
+  return team?.max_members ?? DEFAULT_MAX_TEAM_MEMBERS;
 };
 
 /**
@@ -56,13 +100,97 @@ const ensureTeam = async (user_id, teamName, ownerEmail) => {
     });
   }
 
-  await syncTeamMaxMembersFromUserLimits(ownerIdStr);
+  return team;
+};
 
-  return AtlasTeam.findOne({ owner_user_id: ownerIdStr });
+/**
+ * All teams the user belongs to — owned teams and teams they joined as a member.
+ */
+const getUserTeams = async (user_id) => {
+  const uid = String(user_id);
+
+  const [ownedTeams, memberships] = await Promise.all([
+    AtlasTeam.find({
+      owner_user_id: uid,
+      is_active: true,
+      status: "active",
+    }).lean(),
+    AtlasTeamMember.find({ user_id: uid, status: "active" }).lean(),
+  ]);
+
+  const ownedIds = new Set(ownedTeams.map((team) => String(team._id)));
+  const membershipByTeamId = new Map(
+    memberships.map((membership) => [membership.team_id, membership]),
+  );
+  const memberTeamIds = [
+    ...new Set(
+      memberships
+        .map((membership) => membership.team_id)
+        .filter((teamId) => !ownedIds.has(teamId)),
+    ),
+  ];
+
+  const memberTeams = memberTeamIds.length
+    ? await AtlasTeam.find({
+        _id: { $in: memberTeamIds },
+        is_active: true,
+        status: "active",
+      }).lean()
+    : [];
+
+  const formatTeam = (team, role) => ({
+    team_id: String(team._id),
+    team_name: team.team_name || null,
+    is_owner: role === TEAM_OWNER_ROLE,
+    role,
+  });
+
+  return [
+    ...ownedTeams.map((team) => formatTeam(team, TEAM_OWNER_ROLE)),
+    ...memberTeams.map((team) => {
+      const membership = membershipByTeamId.get(String(team._id));
+      return formatTeam(team, membership?.role || "member");
+    }),
+  ];
+};
+
+/**
+ * Resolves the user's role for a specific team: owner | admin | member.
+ */
+const getUserRoleForTeam = async (userId, teamId) => {
+  if (!teamId) {
+    return null;
+  }
+
+  const uid = String(userId);
+  const tid = String(teamId);
+
+  const owned = await AtlasTeam.exists({
+    _id: tid,
+    owner_user_id: uid,
+    is_active: true,
+    status: "active",
+  });
+
+  if (owned) {
+    return TEAM_OWNER_ROLE;
+  }
+
+  const membership = await AtlasTeamMember.findOne({
+    team_id: tid,
+    user_id: uid,
+    status: "active",
+  }).lean();
+
+  return membership?.role ?? null;
 };
 
 module.exports = {
   ensureTeam,
-  syncTeamMaxMembers,
-  syncTeamMaxMembersFromUserLimits,
+  getUserTeams,
+  getUserRoleForTeam,
+  refreshTeamMemberCount,
+  getOwnerTeamLimits,
+  getTeamLimits,
+  getOwnerMaxTeamMembers,
 };

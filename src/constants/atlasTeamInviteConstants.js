@@ -1,8 +1,10 @@
+const { TEAM_MEMBER_ROLE, INVITABLE_ROLES } = require("./atlasTeamRoleConstants");
+
 const INVITE_TOKEN_TYPE = "atlas_team_invite";
 const INVITE_TTL_DAYS = 7;
 const INVITE_TTL_JWT = "7d";
 const MAX_INVITE_BATCH_SIZE = 50;
-const DEFAULT_MEMBER_ROLE = "member";
+const DEFAULT_MEMBER_ROLE = TEAM_MEMBER_ROLE;
 
 module.exports = {
   INVITE_TOKEN_TYPE,
@@ -10,4 +12,5 @@ module.exports = {
   INVITE_TTL_JWT,
   MAX_INVITE_BATCH_SIZE,
   DEFAULT_MEMBER_ROLE,
+  INVITABLE_ROLES,
 };
