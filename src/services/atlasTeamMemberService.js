@@ -1033,10 +1033,135 @@ const removeTeamMember = async ({ userId, teamId, memberUserId }) => {
   };
 };
 
+const updateTeamMemberRole = async ({ userId, teamId, memberUserId, role }) => {
+  if (!memberUserId) {
+    return {
+      ok: false,
+      statusCode: 400,
+      body: {
+        success: false,
+        message: "user_id is required.",
+      },
+    };
+  }
+
+  if (!role) {
+    return {
+      ok: false,
+      statusCode: 400,
+      body: {
+        success: false,
+        message: "role is required.",
+      },
+    };
+  }
+
+  if (!INVITABLE_ROLES.includes(role)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      body: {
+        success: false,
+        message: 'Invalid role. Must be "admin" or "member".',
+      },
+    };
+  }
+
+  const permission = await checkTeamPermission(
+    userId,
+    teamId,
+    TEAM_ACTIONS.UPDATE_MEMBER_ROLE,
+  );
+
+  if (!permission.allowed) {
+    return {
+      ok: false,
+      statusCode: permission.statusCode,
+      body: {
+        success: false,
+        message: permission.message,
+      },
+    };
+  }
+
+  const team = permission.team;
+  const memberIdStr = String(memberUserId);
+
+  if (memberIdStr === String(permission.ownerUserId)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      body: {
+        success: false,
+        message: "The team owner's role cannot be changed.",
+      },
+    };
+  }
+
+  const member = await AtlasTeamMember.findOneAndUpdate(
+    {
+      team_id: String(team._id),
+      user_id: memberIdStr,
+      status: "active",
+    },
+    { $set: { role } },
+    { new: true },
+  ).lean();
+
+  if (!member) {
+    const existing = await AtlasTeamMember.findOne({
+      team_id: String(team._id),
+      user_id: memberIdStr,
+    }).lean();
+
+    if (!existing) {
+      return {
+        ok: false,
+        statusCode: 404,
+        body: {
+          success: false,
+          message: "This user is not a member of your team.",
+        },
+      };
+    }
+
+    return {
+      ok: false,
+      statusCode: 200,
+      body: {
+        success: false,
+        message: "This member has been removed.",
+        member: {
+          user_id: existing.user_id,
+          email: existing.email,
+          role: existing.role,
+          status: existing.status,
+        },
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    statusCode: 200,
+    body: {
+      success: true,
+      message: "Team member role updated.",
+      member: {
+        user_id: member.user_id,
+        email: member.email,
+        role: member.role,
+        status: member.status,
+      },
+    },
+  };
+};
+
 module.exports = {
   inviteTeamMembers,
   getInvitationPreview,
   respondToInvitation,
   listTeamMembers,
   removeTeamMember,
+  updateTeamMemberRole,
 };

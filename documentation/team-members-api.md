@@ -66,6 +66,7 @@ The session JWT payload includes:
 | List members (`GET /team/members`) | Yes | Yes | Yes |
 | Invite members (`POST /team/members/invite`) | Yes | Yes | No → `403` |
 | Remove members (`POST /team/members/remove`) | Yes | Yes | No → `403` |
+| Update member role (`POST /team/members/update-role`) | Yes | Yes | No → `403` |
 
 The backend re-resolves role from the database on each request (via `team_id` + `user_id`), not only from the JWT claim.
 
@@ -514,6 +515,65 @@ Owner-only. Soft-removes an active member (`status: "removed"`). No counter upda
 
 ---
 
+### 6. Update team member role
+
+**`POST /elysium-atlas/v1/team/members/update-role`**
+
+Owner or admin. Updates the role of an active team member (`admin` or `member`). The team owner's role cannot be changed.
+
+#### Headers
+
+```json
+{
+  "Authorization": "Bearer <sessionToken>",
+  "Content-Type": "application/json"
+}
+```
+
+#### Request body
+
+```json
+{
+  "user_id": "665a1b2c3d4e5f6789012347",
+  "role": "admin"
+}
+```
+
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| `user_id` | Yes | `string` | MongoDB user id of the member |
+| `role` | Yes | `string` | `"admin"` or `"member"` |
+
+#### Success response — `200`
+
+```json
+{
+  "success": true,
+  "message": "Team member role updated.",
+  "member": {
+    "user_id": "665a1b2c3d4e5f6789012347",
+    "email": "alice@example.com",
+    "role": "admin",
+    "status": "active"
+  }
+}
+```
+
+#### Error responses
+
+| HTTP | Body |
+|------|------|
+| `400` | `{ "success": false, "message": "user_id is required." }` |
+| `400` | `{ "success": false, "message": "role is required." }` |
+| `400` | `{ "success": false, "message": "Invalid role. Must be \"admin\" or \"member\"." }` |
+| `400` | `{ "success": false, "message": "The team owner's role cannot be changed." }` |
+| `401` | Missing or invalid session token |
+| `403` | `{ "success": false, "message": "You do not have permission to update member roles on this team." }` |
+| `404` | `{ "success": false, "message": "This user is not a member of your team." }` |
+| `200` | `{ "success": false, "message": "This member has been removed.", "member": { ... } }` |
+
+---
+
 ## MongoDB collections
 
 ### `atlas_teams` (existing)
@@ -771,6 +831,15 @@ curl -X POST http://localhost:3000/elysium-atlas/v1/team/members/remove \
   -H "Authorization: Bearer YOUR_SESSION_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"user_id\":\"MEMBER_USER_ID\"}"
+```
+
+**Update member role:**
+
+```bash
+curl -X POST http://localhost:3000/elysium-atlas/v1/team/members/update-role \
+  -H "Authorization: Bearer YOUR_SESSION_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"user_id\":\"MEMBER_USER_ID\",\"role\":\"admin\"}"
 ```
 
 ---

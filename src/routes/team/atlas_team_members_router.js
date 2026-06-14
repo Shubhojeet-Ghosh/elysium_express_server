@@ -32,4 +32,10 @@ router.post(
   atlasTeamMembersController.removeMember,
 );
 
+router.post(
+  "/v1/team/members/update-role",
+  authenticateToken,
+  atlasTeamMembersController.updateMemberRole,
+);
+
 module.exports = router;

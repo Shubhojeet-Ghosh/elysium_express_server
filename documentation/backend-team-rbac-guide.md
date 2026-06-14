@@ -106,6 +106,7 @@ Express enforces this today on **team member APIs**; mirror the same rules in Py
 | List team members | Yes | Yes | Yes |
 | Invite members | Yes | Yes | No |
 | Remove members | Yes | Yes | No |
+| Update member role | Yes | Yes | No |
 
 ### Remove rules (extra)
 
@@ -121,8 +122,8 @@ Invites only allow roles `"admin"` or `"member"` — never `"owner"`.
 
 ```python
 ROLE_PERMISSIONS = {
-    "owner": {"list_members", "invite_members", "remove_members"},
-    "admin": {"list_members", "invite_members", "remove_members"},
+    "owner": {"list_members", "invite_members", "remove_members", "update_member_role"},
+    "admin": {"list_members", "invite_members", "remove_members", "update_member_role"},
     "member": {"list_members"},
 }
 
