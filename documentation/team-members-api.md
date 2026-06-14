@@ -524,7 +524,7 @@ Team metadata. One personal team per owner.
 |-------|---------|
 | `owner_user_id` | Team owner |
 | `member_count` | Owner (1) + active members — **source of truth**, recomputed on team operations |
-| `max_members` | Max team size — **source of truth** (set directly on `atlas_teams`; not overwritten by plan sync) |
+| `max_members` | Max team size — **source of truth**; set via **`POST /plan/assign`** from `atlas_plans.plan_limits.max_team_members` |
 
 Team capacity in `/plan/info` and invite/list APIs reads from **`atlas_teams`**, not from this collection.
 
@@ -705,7 +705,7 @@ remaining invite slots = max_members - member_count - pending_invites
 ```
 
 - `member_count` includes the owner (minimum 1); recomputed from `atlas_team_members` before reads.
-- `max_members` is **not** updated by plan assign or `syncUserAvailableLimits`. Set it directly on `atlas_teams` (or via a future admin API). Plan assign only syncs consumable limits to `atlas_user_available_plan_limits`.
+- `max_members` is updated on **`POST /plan/assign`** from `atlas_plans.plan_limits.max_team_members` (owner's active team(s)). Login/trial/`syncUserAvailableLimits` do **not** change it.
 - Each **new** pending invitation consumes one slot until it expires, is declined, or is accepted.
 - Re-inviting an email with an existing pending invite (`already_invited`) does **not** consume an additional slot.
 

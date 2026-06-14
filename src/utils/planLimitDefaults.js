@@ -40,10 +40,14 @@ const applyAvailableLimitDefaults = (planLimits = {}) => {
   return limits;
 };
 
+const resolveMaxTeamMembers = (planLimits = {}) =>
+  applyPlanLimitDefaults(planLimits).max_team_members;
+
 module.exports = {
   DEFAULT_MAX_VISITOR_MESSAGE_CHARS,
   DEFAULT_MAX_TEAM_MEMBERS,
   PLAN_CAPACITY_LIMIT_KEYS,
   applyPlanLimitDefaults,
   applyAvailableLimitDefaults,
+  resolveMaxTeamMembers,
 };

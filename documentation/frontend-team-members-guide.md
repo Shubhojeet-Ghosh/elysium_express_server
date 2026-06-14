@@ -26,7 +26,7 @@ Team size is **not** stored as counters on the team document. The backend counts
 
 | What | Where it comes from |
 |------|---------------------|
-| **Max team size** | Owner's `atlas_teams.max_members` (source of truth — not overwritten by plan assign) |
+| **Max team size** | Owner's `atlas_teams.max_members` — updated on **`POST /plan/assign`** from plan's `max_team_members` |
 | **Current team size** | Owner's `atlas_teams.member_count` (refreshed live: 1 + active members) |
 | **Plan info API** | `max_team_members` + `member_count` in **`original_limits`** (from `atlas_teams`) — not in `available_limits` |
 
@@ -1139,7 +1139,7 @@ When a user switches teams at login, call `/plan/info` again — they see that t
 
 8. **No manual counter increments on join/leave** — `atlas_teams.member_count` is recomputed from active members when plan info, list, invite, accept, or remove runs.
 
-9. **`max_team_members` and `member_count` come from `atlas_teams`** (in `original_limits` and `plan_data.team`), not from `available_limits`. Plan assign does **not** change `atlas_teams.max_members`.
+9. **`max_team_members` and `member_count` come from `atlas_teams`** (in `original_limits` and `plan_data.team`), not from `available_limits`. **`POST /plan/assign`** sets `atlas_teams.max_members` from the plan's `max_team_members`.
 
 10. **Only the team owner** can invite, list, or remove members. Invited members cannot perform these actions.
 

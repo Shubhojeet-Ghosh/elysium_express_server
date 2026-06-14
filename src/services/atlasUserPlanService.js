@@ -4,7 +4,9 @@ const AtlasUserAvailablePlanLimits = require("../models/atlas_user_available_pla
 const {
   applyAvailableLimitDefaults,
   PLAN_CAPACITY_LIMIT_KEYS,
+  resolveMaxTeamMembers,
 } = require("../utils/planLimitDefaults");
+const { syncTeamMaxMembers } = require("./atlasTeamService");
 
 const STARTER_PLAN_ID = "trial-001";
 
@@ -151,8 +153,10 @@ const assignPlanToUser = async (user_id, plan_id) => {
     notes: `Plan assigned via internal API on ${now.toISOString()}.`,
   });
 
-  // 4. Sync consumable limits to user doc (does not touch atlas_teams.max_members).
-  await syncUserAvailableLimits(uid, planDoc.plan_limits || {});
+  // 4. Sync consumable limits; update team capacity on owner's atlas_teams.
+  const planLimits = planDoc.plan_limits || {};
+  await syncUserAvailableLimits(uid, planLimits);
+  await syncTeamMaxMembers(uid, resolveMaxTeamMembers(planLimits));
 
   return { success: true, plan, message: "Plan assigned successfully." };
 };

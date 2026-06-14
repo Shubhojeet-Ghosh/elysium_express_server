@@ -77,6 +77,19 @@ const getOwnerMaxTeamMembers = async (user_id) => {
 };
 
 /**
+ * Sets max_members on the owner's atlas_teams doc from an assigned plan.
+ * Called on plan assign — not from login/trial available-limits sync.
+ */
+const syncTeamMaxMembers = async (user_id, maxTeamMembers) => {
+  const maxMembers = maxTeamMembers ?? DEFAULT_MAX_TEAM_MEMBERS;
+
+  await AtlasTeam.updateMany(
+    { owner_user_id: String(user_id), is_active: true, status: "active" },
+    { $set: { max_members: maxMembers } },
+  );
+};
+
+/**
  * Finds the team owned by the given user, or creates one if it doesn't exist.
  * Call this on every login / sign-up path so the response always carries team_id.
  *
@@ -193,4 +206,5 @@ module.exports = {
   getOwnerTeamLimits,
   getTeamLimits,
   getOwnerMaxTeamMembers,
+  syncTeamMaxMembers,
 };
