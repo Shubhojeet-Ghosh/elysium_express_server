@@ -2,6 +2,8 @@
 const express = require("express");
 const router = express.Router();
 const atlasAuthController = require("../../controllers/atlasAuthController");
+const atlasAccountSettingsController = require("../../controllers/atlasAccountSettingsController");
+const atlasPasswordResetController = require("../../controllers/atlasPasswordResetController");
 const atlasPlanController = require("../../controllers/atlasPlanController");
 const {
   authenticateToken,
@@ -12,6 +14,16 @@ const {
 router.post("/v1/auth/magic-link", atlasAuthController.sendMagicLinkOrLogin);
 
 router.post("/v1/auth/verify", atlasAuthController.verifyMagicLink);
+
+router.post(
+  "/v1/auth/forgot-password",
+  atlasPasswordResetController.forgotPassword,
+);
+
+router.post(
+  "/v1/auth/reset-password",
+  atlasPasswordResetController.resetPassword,
+);
 
 router.post("/v1/auth/select-team", atlasAuthController.selectTeam);
 
@@ -25,6 +37,12 @@ router.post(
   "/v1/auth/profile/update",
   authenticateToken,
   atlasAuthController.updateProfile,
+);
+
+router.post(
+  "/v1/account/settings/update",
+  authenticateToken,
+  atlasAccountSettingsController.updateSettings,
 );
 
 router.post(

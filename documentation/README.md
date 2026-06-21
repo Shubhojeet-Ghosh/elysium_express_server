@@ -7,6 +7,7 @@
 | [**Frontend Team Members Guide**](./frontend-team-members-guide.md) | **Frontend developers** | Team invite, list, remove APIs |
 | [Atlas Auth API (short reference)](./atlas-auth-api.md) | Quick lookup | Condensed auth endpoint reference |
 | [Team Members API (full reference)](./team-members-api.md) | Backend + frontend | MongoDB schemas and technical reference |
+| [Account Settings API](./account-settings-md.md) | Frontend developers | Owner account settings (name, team name, password) |
 
 **Start here:**
 - Python / shared MongoDB services → [backend-team-rbac-guide.md](./backend-team-rbac-guide.md)
